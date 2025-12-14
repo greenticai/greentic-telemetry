@@ -1,19 +1,16 @@
 use greentic_telemetry::{
-    OtlpConfig, TelemetryCtx, init_otlp, layer_from_task_local, set_current_telemetry_ctx,
-    with_task_local,
+    TelemetryConfig, TelemetryCtx, init_telemetry_auto, set_current_telemetry_ctx, with_task_local,
 };
 
 #[tokio::main]
 async fn main() {
     with_task_local(async {
-        let _ = init_otlp(
-            OtlpConfig {
-                service_name: "telemetry-demo".into(),
-                endpoint: None,
-                sampling_rate: Some(1.0),
-            },
-            vec![Box::new(layer_from_task_local())],
-        );
+        unsafe {
+            std::env::set_var("TELEMETRY_EXPORT", "json-stdout");
+        }
+        let _ = init_telemetry_auto(TelemetryConfig {
+            service_name: "telemetry-demo".into(),
+        });
 
         set_current_telemetry_ctx(
             TelemetryCtx::new("acme")

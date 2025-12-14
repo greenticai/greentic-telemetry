@@ -1,7 +1,13 @@
-use once_cell::sync::{Lazy, OnceCell};
-use regex::Regex;
-use std::collections::HashSet;
-use std::sync::Mutex;
+use once_cell::sync::OnceCell;
+#[cfg(feature = "otlp")]
+use opentelemetry::{KeyValue, Value};
+#[cfg(feature = "otlp")]
+use opentelemetry_sdk::error::OTelSdkResult;
+#[cfg(feature = "otlp")]
+use opentelemetry_sdk::trace::{SpanData, SpanExporter};
+use std::fmt;
+use tracing_subscriber::field::{RecordFields, Visit};
+use tracing_subscriber::fmt::format::{FormatFields, Writer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum RedactionMode {
@@ -15,20 +21,24 @@ pub enum RedactionMode {
 pub struct Redactor {
     mode: RedactionMode,
     allowlist: Vec<String>,
-    regexes: Vec<Regex>,
+    patterns: Vec<String>,
 }
 
 static REDACTOR: OnceCell<Redactor> = OnceCell::new();
-static WARNED_PATTERNS: OnceCell<Mutex<HashSet<String>>> = OnceCell::new();
 
-static DEFAULT_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    vec![
-        Regex::new(r"(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}").unwrap(),
-        Regex::new(r"(?i)bearer\s+[a-z0-9._\-]+\b").unwrap(),
-        Regex::new(r"(?i)(api[-_]?key|token)\s*[:=]\s*[a-z0-9._\-]+\b").unwrap(),
-        Regex::new(r"\+?\d[\d\-\s]{7,14}\d").unwrap(),
-    ]
-});
+const SENSITIVE_KEYS: &[&str] = &[
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "password",
+    "client_secret",
+    "access_token",
+    "refresh_token",
+    "bearer",
+    "x-api-key",
+];
 
 pub fn init_from_env() {
     let mode = std::env::var("PII_REDACTION_MODE")
@@ -59,13 +69,24 @@ pub fn init_from_env() {
         Vec::new()
     };
 
-    let regexes = build_custom_regexes(std::env::var("PII_MASK_REGEXES").ok().as_deref());
+    let patterns = build_custom_patterns(std::env::var("PII_MASK_REGEXES").ok().as_deref());
 
     let _ = REDACTOR.set(Redactor {
         mode,
         allowlist,
-        regexes,
+        patterns,
     });
+}
+
+/// Masks a value based on key heuristics used for telemetry outputs.
+pub fn redact_for_key(key: &str, value: &str) -> String {
+    if is_sensitive_key(key) {
+        if looks_like_bearer(value) {
+            return "Bearer [REDACTED]".into();
+        }
+        return "[REDACTED]".into();
+    }
+    mask_value(value, &REDACTOR.get().cloned().unwrap_or_default())
 }
 
 pub fn redact_field(key: &str, value: &str) -> String {
@@ -81,13 +102,13 @@ pub fn redact_field(key: &str, value: &str) -> String {
             if redactor.mode == RedactionMode::Allowlist && is_allowed {
                 value.to_string()
             } else {
-                apply_patterns(value, &redactor)
+                mask_value(value, &redactor)
             }
         }
     }
 }
 
-fn build_custom_regexes(value: Option<&str>) -> Vec<Regex> {
+fn build_custom_patterns(value: Option<&str>) -> Vec<String> {
     let mut list = Vec::new();
 
     let Some(value) = value else {
@@ -99,41 +120,179 @@ fn build_custom_regexes(value: Option<&str>) -> Vec<Regex> {
         if trimmed.is_empty() {
             continue;
         }
-
-        match Regex::new(trimmed) {
-            Ok(regex) => list.push(regex),
-            Err(err) => warn_once(trimmed.to_string(), err),
-        }
+        list.push(trimmed.to_string());
     }
 
     list
 }
 
-fn apply_patterns(value: &str, redactor: &Redactor) -> String {
-    let mut masked = value.to_string();
-
-    if matches!(
+fn mask_value(value: &str, redactor: &Redactor) -> String {
+    if !matches!(
         redactor.mode,
         RedactionMode::Strict | RedactionMode::Allowlist
     ) {
-        masked = DEFAULT_PATTERNS.iter().fold(masked, |current, regex| {
-            regex.replace_all(&current, "[REDACTED]").into_owned()
-        });
+        return value.to_string();
     }
 
-    for regex in &redactor.regexes {
-        masked = regex.replace_all(&masked, "[REDACTED]").into_owned();
+    // Simple heuristics: mask if the string looks like common PII/token formats.
+    if looks_like_email(value)
+        || looks_like_bearer(value)
+        || looks_like_token(value)
+        || looks_like_phone(value)
+        || looks_like_secret(value)
+    {
+        return "[REDACTED]".into();
     }
 
-    masked
+    for pattern in &redactor.patterns {
+        if value
+            .to_ascii_lowercase()
+            .contains(&pattern.to_ascii_lowercase())
+        {
+            return "[REDACTED]".into();
+        }
+    }
+
+    value.to_string()
 }
 
-fn warn_once(pattern: String, err: regex::Error) {
-    let set = WARNED_PATTERNS.get_or_init(|| Mutex::new(HashSet::new()));
-    if let Ok(mut guard) = set.lock()
-        && guard.insert(pattern.clone())
-    {
-        tracing::warn!("invalid PII_MASK_REGEXES entry '{pattern}': {err}");
+fn looks_like_email(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains('@') && lower.rsplit_once('.').is_some()
+}
+
+fn looks_like_bearer(value: &str) -> bool {
+    value.to_ascii_lowercase().starts_with("bearer ")
+}
+
+fn looks_like_token(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("api-key")
+        || lower.contains("api_key")
+        || lower.contains("api key")
+        || lower.contains("token=")
+        || lower.contains("token ")
+}
+
+fn looks_like_phone(value: &str) -> bool {
+    let digits = value.chars().filter(|c| c.is_ascii_digit()).count();
+    digits >= 8
+}
+
+fn looks_like_secret(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("secret")
+        || lower.contains("password")
+        || lower.contains("passwd")
+        || lower.contains("pwd")
+        || lower.contains("credential")
+        || lower.contains("auth")
+        || lower.contains("key=")
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    SENSITIVE_KEYS
+        .iter()
+        .any(|needle| lower.contains(needle) || lower == *needle)
+}
+
+/// Formatter that redacts sensitive fields for fmt/logging output.
+#[derive(Debug, Default)]
+pub struct RedactingFormatFields;
+
+impl<'writer> FormatFields<'writer> for RedactingFormatFields {
+    fn format_fields<R: RecordFields>(
+        &self,
+        mut writer: Writer<'writer>,
+        fields: R,
+    ) -> fmt::Result {
+        let mut visitor = RedactingVisitor::new(&mut writer);
+        fields.record(&mut visitor);
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct RedactingVisitor<'a, 'writer> {
+    writer: &'a mut Writer<'writer>,
+    is_empty: bool,
+}
+
+impl<'a, 'writer> RedactingVisitor<'a, 'writer> {
+    fn new(writer: &'a mut Writer<'writer>) -> Self {
+        Self {
+            writer,
+            is_empty: true,
+        }
+    }
+
+    fn write_pair(&mut self, field: &tracing::field::Field, value: &str) {
+        let redacted = redact_for_key(field.name(), value);
+        let sep = if self.is_empty { "" } else { " " };
+        let _ = write!(self.writer, "{sep}{}={}", field.name(), redacted);
+        self.is_empty = false;
+    }
+}
+
+impl<'a, 'writer> Visit for RedactingVisitor<'a, 'writer> {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
+        self.write_pair(field, &format!("{value:?}"));
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.write_pair(field, value);
+    }
+
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.write_pair(field, &value.to_string());
+    }
+
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        self.write_pair(field, &value.to_string());
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+        self.write_pair(field, &value.to_string());
+    }
+}
+
+#[cfg(feature = "otlp")]
+pub fn wrap_span_exporter<E: SpanExporter>(inner: E) -> RedactingSpanExporter<E> {
+    RedactingSpanExporter { inner }
+}
+
+#[cfg(feature = "otlp")]
+#[derive(Debug)]
+pub struct RedactingSpanExporter<E> {
+    inner: E,
+}
+
+#[cfg(feature = "otlp")]
+impl<E: SpanExporter> SpanExporter for RedactingSpanExporter<E> {
+    fn export(
+        &self,
+        mut batch: Vec<SpanData>,
+    ) -> impl std::future::Future<Output = OTelSdkResult> + Send {
+        for span in &mut batch {
+            redact_attributes(&mut span.attributes);
+            for event in &mut span.events.events {
+                redact_attributes(&mut event.attributes);
+            }
+        }
+        self.inner.export(batch)
+    }
+}
+
+#[cfg(feature = "otlp")]
+fn redact_attributes(attrs: &mut [KeyValue]) {
+    for kv in attrs.iter_mut() {
+        if let Value::String(ref mut string_val) = kv.value {
+            let masked = redact_for_key(kv.key.as_str(), string_val.as_str());
+            kv.value = Value::String(masked.into());
+        } else if is_sensitive_key(kv.key.as_str()) {
+            kv.value = Value::String("[REDACTED]".into());
+        }
     }
 }
 
@@ -146,10 +305,10 @@ mod tests {
         let redactor = Redactor {
             mode: RedactionMode::Strict,
             allowlist: Vec::new(),
-            regexes: Vec::new(),
+            patterns: Vec::new(),
         };
 
-        let masked = apply_patterns(
+        let masked = mask_value(
             "Email alice@example.com with bearer ABC123 and call +12345678901",
             &redactor,
         );
@@ -165,10 +324,10 @@ mod tests {
         let redactor = Redactor {
             mode: RedactionMode::Allowlist,
             allowlist: vec!["user_id".into()],
-            regexes: Vec::new(),
+            patterns: Vec::new(),
         };
 
-        let masked = apply_patterns("User token = secret", &redactor);
+        let masked = mask_value("User token = secret", &redactor);
         assert!(masked.contains("[REDACTED]"));
 
         let field_value = redact_field("user_id", "12345");
@@ -176,14 +335,26 @@ mod tests {
     }
 
     #[test]
-    fn custom_regex_masks_access_token() {
+    fn custom_pattern_masks_access_token() {
         let redactor = Redactor {
             mode: RedactionMode::Strict,
             allowlist: Vec::new(),
-            regexes: vec![Regex::new(r"(?i)secret\s*[:=]\s*[a-z0-9]+\b").unwrap()],
+            patterns: vec!["secret=".into()],
         };
 
-        let masked = apply_patterns("secret=abcdef", &redactor);
+        let masked = mask_value("secret=abcdef", &redactor);
+        assert_eq!(masked, "[REDACTED]");
+    }
+
+    #[test]
+    fn secret_keywords_are_masked() {
+        let redactor = Redactor {
+            mode: RedactionMode::Strict,
+            allowlist: Vec::new(),
+            patterns: Vec::new(),
+        };
+
+        let masked = mask_value("my password is 12345", &redactor);
         assert_eq!(masked, "[REDACTED]");
     }
 }

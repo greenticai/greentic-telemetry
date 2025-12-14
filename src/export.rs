@@ -20,17 +20,26 @@ pub enum ExportMode {
 pub enum Sampling {
     Parent,
     TraceIdRatio(f64),
+    AlwaysOn,
+    AlwaysOff,
 }
 
 #[cfg_attr(
     not(any(feature = "otlp-grpc", feature = "otlp-http")),
     allow(dead_code)
 )]
+#[derive(Clone, Debug)]
 pub struct ExportConfig {
     pub mode: ExportMode,
     pub endpoint: Option<String>,
     pub headers: HashMap<String, String>,
     pub sampling: Sampling,
+    pub compression: Option<Compression>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Compression {
+    Gzip,
 }
 
 impl ExportConfig {
@@ -40,6 +49,7 @@ impl ExportConfig {
             endpoint: None,
             headers: HashMap::new(),
             sampling: Sampling::Parent,
+            compression: None,
         }
     }
 
@@ -83,6 +93,7 @@ impl ExportConfig {
         }
 
         let sampling = parse_sampling(env::var("TELEMETRY_SAMPLING").ok().as_deref())?;
+        let compression = parse_compression(env::var("OTLP_COMPRESSION").ok().as_deref());
 
         let inferred_mode = if explicit_export.is_none() {
             preset_config.export_mode.unwrap_or(match preset {
@@ -98,6 +109,7 @@ impl ExportConfig {
             endpoint,
             headers,
             sampling,
+            compression,
         })
     }
 }
@@ -143,8 +155,11 @@ fn parse_sampling(value: Option<&str>) -> Result<Sampling> {
     };
 
     let normalized = value.to_ascii_lowercase();
-    if normalized == "parent" {
-        return Ok(Sampling::Parent);
+    match normalized.as_str() {
+        "parent" => return Ok(Sampling::Parent),
+        "always_on" | "always-on" => return Ok(Sampling::AlwaysOn),
+        "always_off" | "always-off" => return Ok(Sampling::AlwaysOff),
+        _ => {}
     }
 
     if let Some(rest) = normalized.strip_prefix("traceidratio:") {
@@ -160,21 +175,14 @@ fn parse_sampling(value: Option<&str>) -> Result<Sampling> {
     }
 
     Err(anyhow!(
-        "unsupported TELEMETRY_SAMPLING '{value}', expected parent or traceidratio:<ratio>"
+        "unsupported TELEMETRY_SAMPLING '{value}', expected parent, always_on, always_off, or traceidratio:<ratio>"
     ))
 }
 
-#[cfg(any(feature = "otlp-grpc", feature = "otlp-http"))]
-impl Sampling {
-    pub(crate) fn into_sampler(self) -> opentelemetry_sdk::trace::Sampler {
-        use opentelemetry_sdk::trace::Sampler;
-
-        match self {
-            Sampling::Parent => Sampler::ParentBased(Box::new(Sampler::AlwaysOn)),
-            Sampling::TraceIdRatio(ratio) => {
-                let ratio_sampler = Sampler::TraceIdRatioBased(ratio);
-                Sampler::ParentBased(Box::new(ratio_sampler))
-            }
-        }
+fn parse_compression(value: Option<&str>) -> Option<Compression> {
+    let value = value?.to_ascii_lowercase();
+    match value.as_str() {
+        "gzip" => Some(Compression::Gzip),
+        _ => None,
     }
 }

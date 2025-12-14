@@ -1,9 +1,11 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use once_cell::sync::OnceCell;
 #[cfg(feature = "otlp")]
 use opentelemetry::global;
 #[cfg(feature = "otlp")]
-use opentelemetry_otlp::{MetricExporter, SpanExporter, WithExportConfig};
+use opentelemetry_otlp::{
+    MetricExporter, SpanExporter, WithExportConfig, WithHttpConfig, WithTonicConfig,
+};
 #[cfg(feature = "otlp")]
 use opentelemetry_sdk::{
     metrics::SdkMeterProvider,
@@ -12,17 +14,24 @@ use opentelemetry_sdk::{
     trace::{BatchSpanProcessor, Sampler, SdkTracerProvider},
 };
 #[cfg(feature = "otlp")]
-use thiserror::Error;
+use std::collections::HashMap;
 #[cfg(feature = "dev")]
 use tracing_appender::rolling;
 #[cfg(any(feature = "dev", feature = "prod-json", feature = "otlp"))]
 use tracing_subscriber::EnvFilter;
+#[cfg(feature = "otlp")]
+use tracing_subscriber::Registry;
 #[cfg(any(feature = "dev", feature = "prod-json"))]
 use tracing_subscriber::fmt;
 #[cfg(any(feature = "dev", feature = "prod-json", feature = "otlp"))]
 use tracing_subscriber::prelude::*;
+
 #[cfg(feature = "otlp")]
-use tracing_subscriber::{Registry, layer::Layer};
+use crate::export::{Compression, Sampling};
+use crate::export::{ExportConfig, ExportMode};
+use crate::redaction;
+#[cfg(any(feature = "dev", feature = "prod-json"))]
+use crate::redaction::RedactingFormatFields;
 
 static INITED: OnceCell<()> = OnceCell::new();
 #[cfg(feature = "otlp")]
@@ -39,6 +48,8 @@ pub struct TelemetryConfig {
 }
 
 pub fn init_telemetry(cfg: TelemetryConfig) -> Result<()> {
+    redaction::init_from_env();
+
     if INITED.get().is_some() {
         return Ok(());
     }
@@ -56,9 +67,14 @@ pub fn init_telemetry(cfg: TelemetryConfig) -> Result<()> {
 
         let layer_stdout = fmt::layer()
             .with_target(true)
+            .fmt_fields(RedactingFormatFields)
             .pretty()
             .with_ansi(atty::is(atty::Stream::Stdout));
-        let layer_file = fmt::layer().with_writer(nb).with_ansi(false).json();
+        let layer_file = fmt::layer()
+            .with_writer(nb)
+            .with_ansi(false)
+            .fmt_fields(RedactingFormatFields)
+            .json();
 
         let _ = tracing_subscriber::registry()
             .with(filter)
@@ -71,10 +87,9 @@ pub fn init_telemetry(cfg: TelemetryConfig) -> Result<()> {
     {
         let filter = filter;
         let layer_json = fmt::layer()
-            .json()
             .with_target(true)
-            .with_current_span(true)
-            .with_span_list(true);
+            .with_span_list(true)
+            .fmt_fields(RedactingFormatFields);
         let _ = tracing_subscriber::registry()
             .with(filter)
             .with(layer_json)
@@ -127,7 +142,7 @@ fn configure_otlp(service_name: &str) -> Result<()> {
 fn install_otlp(endpoint: &str, resource: Resource) -> Result<()> {
     let mut span_exporter_builder = SpanExporter::builder().with_tonic();
     span_exporter_builder = span_exporter_builder.with_endpoint(endpoint.to_string());
-    let span_exporter = span_exporter_builder.build()?;
+    let span_exporter = redaction::wrap_span_exporter(span_exporter_builder.build()?);
 
     let span_processor = BatchSpanProcessor::builder(span_exporter).build();
     let tracer_provider = SdkTracerProvider::builder()
@@ -163,107 +178,152 @@ pub fn shutdown() {
 #[cfg(not(feature = "otlp"))]
 pub fn shutdown() {}
 
-/// ----- Legacy OTLP wiring kept for backwards compatibility -----
 #[cfg(feature = "otlp")]
-#[derive(Clone, Debug)]
-pub struct OtlpConfig {
-    pub service_name: String,
-    pub endpoint: Option<String>,
-    pub sampling_rate: Option<f64>,
+fn serialize_headers(headers: &HashMap<String, String>) -> Option<String> {
+    if headers.is_empty() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for (key, value) in headers {
+        if key.trim().is_empty() {
+            continue;
+        }
+        parts.push(format!("{key}={value}"));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(","))
+    }
 }
 
 #[cfg(feature = "otlp")]
-#[derive(Debug, Error)]
-pub enum TelemetryError {
-    #[error("init error: {0}")]
-    Init(String),
-}
-
-#[cfg(feature = "otlp")]
-pub fn init_otlp(
-    cfg: OtlpConfig,
-    extra_layers: Vec<Box<dyn Layer<Registry> + Send + Sync>>,
-) -> Result<(), TelemetryError> {
+fn install_otlp_from_export(cfg: TelemetryConfig, export: ExportConfig) -> Result<()> {
     if INIT_GUARD.get().is_some() {
         return Ok(());
     }
 
-    use opentelemetry_otlp::WithExportConfig;
-
-    let endpoint = cfg
-        .endpoint
-        .or_else(|| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok())
-        .unwrap_or_else(|| "http://localhost:4317".into());
-
-    let mut exporter_builder = opentelemetry_otlp::SpanExporter::builder().with_tonic();
-    exporter_builder = exporter_builder.with_endpoint(endpoint);
-    let exporter = exporter_builder
-        .build()
-        .map_err(|e| TelemetryError::Init(e.to_string()))?;
+    let endpoint = export.endpoint.unwrap_or_else(|| match export.mode {
+        ExportMode::OtlpHttp => "http://localhost:4318".into(),
+        _ => "http://localhost:4317".into(),
+    });
 
     let resource = Resource::builder()
         .with_service_name(cfg.service_name)
         .build();
 
-    let sampler = match cfg.sampling_rate.unwrap_or(1.0) {
-        x if (0.0..1.0).contains(&x) && x < 1.0 => Sampler::TraceIdRatioBased(x),
+    let sampler = match export.sampling {
+        Sampling::TraceIdRatio(ratio) if (0.0..1.0).contains(&ratio) && ratio < 1.0 => {
+            Sampler::TraceIdRatioBased(ratio)
+        }
+        Sampling::AlwaysOff => Sampler::AlwaysOff,
         _ => Sampler::AlwaysOn,
     };
 
-    let provider = SdkTracerProvider::builder()
-        .with_batch_exporter(exporter)
-        .with_sampler(sampler)
-        .with_resource(resource)
-        .build();
-
-    use opentelemetry::trace::TracerProvider as _;
-
-    let tracer = provider.tracer("greentic-telemetry");
-    global::set_tracer_provider(provider);
-
-    let extra_layer = combine_layers(extra_layers)
-        .unwrap_or_else(|| tracing_subscriber::layer::Identity::new().boxed());
-
-    let subscriber = Registry::default().with(extra_layer);
-
-    let subscriber = subscriber
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")));
-
-    let subscriber = subscriber.with(tracing_opentelemetry::layer().with_tracer(tracer));
-
-    #[cfg(feature = "fmt")]
-    let subscriber = subscriber.with(if std::env::var("GT_TELEMETRY_FMT").as_deref() == Ok("1") {
-        Some(
-            tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_thread_ids(true),
-        )
+    let span_exporter = if matches!(export.mode, ExportMode::OtlpHttp) {
+        let mut builder = SpanExporter::builder()
+            .with_http()
+            .with_endpoint(endpoint.clone());
+        if !export.headers.is_empty() {
+            builder = builder.with_headers(export.headers.clone());
+        }
+        if let Some(compression) = export.compression {
+            builder = builder.with_compression(map_compression(compression));
+        }
+        builder.build().map_err(|e| anyhow!(e.to_string()))?
     } else {
-        None
-    });
+        if let Some(serialized) = serialize_headers(&export.headers) {
+            unsafe {
+                std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", &serialized);
+                std::env::set_var("OTEL_EXPORTER_OTLP_TRACES_HEADERS", &serialized);
+                std::env::set_var("OTEL_EXPORTER_OTLP_METRICS_HEADERS", serialized.clone());
+            }
+        }
+        let mut builder = SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint.clone());
+        if let Some(compression) = export.compression {
+            builder = builder.with_compression(map_compression(compression));
+        }
+        builder.build().map_err(|e| anyhow!(e.to_string()))?
+    };
+    let span_exporter = redaction::wrap_span_exporter(span_exporter);
 
-    subscriber
-        .try_init()
-        .map_err(|e: tracing_subscriber::util::TryInitError| TelemetryError::Init(e.to_string()))?;
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_batch_exporter(span_exporter)
+        .with_sampler(sampler)
+        .with_resource(resource.clone())
+        .build();
+    global::set_tracer_provider(tracer_provider.clone());
+    let _ = TRACER_PROVIDER.set(tracer_provider);
+
+    let metric_exporter = if matches!(export.mode, ExportMode::OtlpHttp) {
+        let mut builder = MetricExporter::builder()
+            .with_http()
+            .with_endpoint(endpoint.clone());
+        if !export.headers.is_empty() {
+            builder = builder.with_headers(export.headers.clone());
+        }
+        if let Some(compression) = export.compression {
+            builder = builder.with_compression(map_compression(compression));
+        }
+        builder.build().map_err(|e| anyhow!(e.to_string()))?
+    } else {
+        let mut builder = MetricExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint.clone());
+        if let Some(compression) = export.compression {
+            builder = builder.with_compression(map_compression(compression));
+        }
+        builder.build().map_err(|e| anyhow!(e.to_string()))?
+    };
+
+    let meter_provider = SdkMeterProvider::builder()
+        .with_resource(resource)
+        .with_periodic_exporter(metric_exporter)
+        .build();
+    global::set_meter_provider(meter_provider.clone());
+    let _ = METER_PROVIDER.set(meter_provider);
+
+    {
+        let tracer = global::tracer("greentic-telemetry");
+
+        let subscriber = Registry::default()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer));
+
+        let _ = subscriber.try_init();
+    }
 
     let _ = INIT_GUARD.set(());
 
     Ok(())
 }
-
 #[cfg(feature = "otlp")]
-fn combine_layers(
-    mut layers: Vec<Box<dyn Layer<Registry> + Send + Sync>>,
-) -> Option<Box<dyn Layer<Registry> + Send + Sync>> {
-    let mut iter = layers.drain(..);
-    let mut combined = match iter.next() {
-        Some(layer) => layer.boxed(),
-        None => return None,
-    };
-
-    for layer in iter {
-        combined = combined.and_then(layer).boxed();
+fn map_compression(c: Compression) -> opentelemetry_otlp::Compression {
+    match c {
+        Compression::Gzip => opentelemetry_otlp::Compression::Gzip,
     }
+}
 
-    Some(combined)
+/// Auto-configure telemetry based on env/preset-driven export settings.
+pub fn init_telemetry_auto(cfg: TelemetryConfig) -> Result<()> {
+    redaction::init_from_env();
+
+    let export = ExportConfig::from_env()?;
+    match export.mode {
+        ExportMode::JsonStdout => init_telemetry(cfg),
+        ExportMode::OtlpGrpc | ExportMode::OtlpHttp => {
+            #[cfg(feature = "otlp")]
+            {
+                install_otlp_from_export(cfg, export)
+            }
+            #[cfg(not(feature = "otlp"))]
+            {
+                Err(anyhow!(
+                    "otlp feature disabled; cannot install OTLP exporter from auto-config"
+                ))
+            }
+        }
+    }
 }
