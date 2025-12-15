@@ -47,13 +47,7 @@ pub struct TelemetryConfig {
     pub service_name: String,
 }
 
-pub fn init_telemetry(cfg: TelemetryConfig) -> Result<()> {
-    redaction::init_from_env();
-
-    if INITED.get().is_some() {
-        return Ok(());
-    }
-
+fn init_fmt_layers(cfg: &TelemetryConfig) -> Result<()> {
     #[cfg(any(feature = "dev", feature = "prod-json"))]
     let filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
@@ -106,6 +100,18 @@ pub fn init_telemetry(cfg: TelemetryConfig) -> Result<()> {
             );
         }
     }
+
+    Ok(())
+}
+
+pub fn init_telemetry(cfg: TelemetryConfig) -> Result<()> {
+    redaction::init_from_env();
+
+    if INITED.get().is_some() {
+        return Ok(());
+    }
+
+    init_fmt_layers(&cfg)?;
 
     configure_otlp(&cfg.service_name)?;
 
@@ -308,22 +314,34 @@ fn map_compression(c: Compression) -> opentelemetry_otlp::Compression {
 
 /// Auto-configure telemetry based on env/preset-driven export settings.
 pub fn init_telemetry_auto(cfg: TelemetryConfig) -> Result<()> {
+    let export = ExportConfig::from_env()?;
+    init_telemetry_from_config(cfg, export)
+}
+
+/// Initialize telemetry from an explicit, already-resolved config. No env/preset merging is performed here.
+pub fn init_telemetry_from_config(cfg: TelemetryConfig, export: ExportConfig) -> Result<()> {
     redaction::init_from_env();
 
-    let export = ExportConfig::from_env()?;
+    if INITED.get().is_some() {
+        return Ok(());
+    }
+
     match export.mode {
-        ExportMode::JsonStdout => init_telemetry(cfg),
+        ExportMode::JsonStdout => init_fmt_layers(&cfg)?,
         ExportMode::OtlpGrpc | ExportMode::OtlpHttp => {
             #[cfg(feature = "otlp")]
             {
-                install_otlp_from_export(cfg, export)
+                install_otlp_from_export(cfg, export)?
             }
             #[cfg(not(feature = "otlp"))]
             {
-                Err(anyhow!(
-                    "otlp feature disabled; cannot install OTLP exporter from auto-config"
-                ))
+                return Err(anyhow!(
+                    "otlp feature disabled; cannot install OTLP exporter from config"
+                ));
             }
         }
     }
+
+    let _ = INITED.set(());
+    Ok(())
 }

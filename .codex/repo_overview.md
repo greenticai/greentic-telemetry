@@ -10,7 +10,7 @@
   **Key functionality:** `TelemetryCtx` holds `{tenant, session, flow, node, provider}`; task-local storage for the context; tracing layer (`layer_from_task_local`/`layer_with_provider`) that copies the context into span extensions and records the fields on span entry.
 - **Path:** `src/init.rs`  
   **Role:** Telemetry initialization and shutdown.  
-  **Key functionality:** `init_telemetry` installs tracing subscribers with optional fmt/dev/prod-json layers and OTLP exporters when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (otlp feature); `init_telemetry_auto` derives export mode/endpoints/headers/compression/sampling from env/preset config and wires OTLP (gRPC or HTTP) or stdout accordingly; PII redaction is initialised from env; global shutdown helpers.
+  **Key functionality:** `init_telemetry` installs tracing subscribers with optional fmt/dev/prod-json layers and OTLP exporters when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (otlp feature); `init_telemetry_auto` derives export mode/endpoints/headers/compression/sampling from env/preset config; new `init_telemetry_from_config` treats a provided `ExportConfig` as authoritative (no env merging) to align with greentic-config; PII redaction is initialised from env; global shutdown helpers.
 - **Path:** `src/client.rs`, `src/host_bridge.rs`  
   **Role:** Lightweight client for emitting telemetry independently of the main initialization path.  
   **Key functionality:** `client::init` sets up OTLP exporters (spans + metrics) when an endpoint is provided, otherwise JSON stdout logging; helpers to emit one-off spans (`span`), metrics (`metric`), and pin a trace id (`set_trace_id`); `host_bridge::emit_span` parses host-provided JSON spans and augments them with standard labels before forwarding to the client.

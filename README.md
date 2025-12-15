@@ -46,6 +46,35 @@ async fn main() -> anyhow::Result<()> {
 
 The subscriber becomes the global default; use `opentelemetry::global::shutdown_tracer_provider()` during graceful shutdown to flush spans. The legacy `init_otlp` path has been removed; use `init_telemetry_auto`.
 
+## Config-first init (authoritative)
+
+If you resolve telemetry settings via `greentic-config` (or any other loader), pass them directly to the config-based initializer. No env/preset merging occurs inside `greentic-telemetry`.
+
+```rust
+use greentic_telemetry::{
+    export::{ExportConfig, ExportMode, Sampling},
+    init_telemetry_from_config, TelemetryConfig,
+};
+use std::collections::HashMap;
+
+let export = ExportConfig {
+    mode: ExportMode::OtlpGrpc, // or OtlpHttp/JsonStdout
+    endpoint: Some("http://collector:4317".into()),
+    headers: HashMap::new(),
+    sampling: Sampling::TraceIdRatio(1.0),
+    compression: None,
+};
+
+init_telemetry_from_config(
+    TelemetryConfig {
+        service_name: "my-service".into(),
+    },
+    export,
+)?;
+```
+
+When you call `init_telemetry_from_config`, the crate does not read environment variables for telemetry; the provided config is authoritative. Keep `init_telemetry_auto` around only for legacy env-driven flows.
+
 ## Secrets attribute contract (telemetry)
 
 - Attribute keys (never store secret values): `secrets.op`, `secrets.key`, `secrets.scope.env`, `secrets.scope.tenant`, `secrets.scope.team` (optional), `secrets.result`, `secrets.error_kind` (optional, structured like `host_error`, `io`, `policy`, `serde`).
@@ -133,3 +162,8 @@ Run `ci/local_check.sh` before pushing to mirror the GitHub Actions matrix local
 - `LOCAL_CHECK_VERBOSE=1` — echo each command for easier debugging.
 
 The generated `.git/hooks/pre-push` hook invokes the script automatically; remove or edit it if you prefer to run the checks manually.
+
+## Dependabot auto-merge
+
+- Dependabot is configured for daily Cargo updates. A workflow auto-approves and enables GitHub auto-merge only for Dependabot PRs once checks pass.
+- Repo settings required: enable “Allow auto-merge” and configure required status checks as desired in branch protection.
