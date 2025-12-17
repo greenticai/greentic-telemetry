@@ -16,6 +16,8 @@ use opentelemetry_sdk::{
 #[cfg(feature = "otlp")]
 use std::collections::HashMap;
 #[cfg(feature = "dev")]
+use std::io::IsTerminal;
+#[cfg(feature = "dev")]
 use tracing_appender::rolling;
 #[cfg(any(feature = "dev", feature = "prod-json", feature = "otlp"))]
 use tracing_subscriber::EnvFilter;
@@ -47,7 +49,7 @@ pub struct TelemetryConfig {
     pub service_name: String,
 }
 
-fn init_fmt_layers(cfg: &TelemetryConfig) -> Result<()> {
+fn init_fmt_layers(_cfg: &TelemetryConfig) -> Result<()> {
     #[cfg(any(feature = "dev", feature = "prod-json"))]
     let filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
@@ -55,15 +57,17 @@ fn init_fmt_layers(cfg: &TelemetryConfig) -> Result<()> {
 
     #[cfg(feature = "dev")]
     {
+        let cfg = _cfg;
         let filter = filter.clone();
         let file_appender = rolling::daily(".dev-logs", format!("{}.log", cfg.service_name));
         let (nb, _guard) = tracing_appender::non_blocking(file_appender);
+        let stdout_is_tty = std::io::stdout().is_terminal();
 
         let layer_stdout = fmt::layer()
             .with_target(true)
             .fmt_fields(RedactingFormatFields)
             .pretty()
-            .with_ansi(atty::is(atty::Stream::Stdout));
+            .with_ansi(stdout_is_tty);
         let layer_file = fmt::layer()
             .with_writer(nb)
             .with_ansi(false)

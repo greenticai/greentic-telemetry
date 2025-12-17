@@ -1,6 +1,6 @@
 [package]
 name = "greentic-telemetry"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/greentic-ai/greentic-telemetry"
@@ -38,7 +38,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "registry"] }
 tracing-error = "0.2"
 tracing-appender = "0.2"
-atty = "0.2"
 opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "http-proto", "metrics"], optional = true }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics"], optional = true }
