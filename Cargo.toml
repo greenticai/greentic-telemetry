@@ -3,7 +3,7 @@ name = "greentic-telemetry"
 version = "0.4.3"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/greentic-ai/greentic-telemetry"
+repository = "https://github.com/greenticai/greentic-telemetry"
 homepage = "https://greentic.ai"
 documentation = "https://docs.rs/greentic-telemetry"
 description = "Thin telemetry facade for Greentic: tracing/logging/metrics with OTLP + WASM."
@@ -49,3 +49,4 @@ console-subscriber = { version = "0.5", optional = true }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4"] }
+
