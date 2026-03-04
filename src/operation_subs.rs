@@ -176,12 +176,55 @@ pub fn operation_root_span(
     tracing::info_span!(
         "greentic.op",
         greentic.op.name = %op_name,
-        greentic.provider.type_ = %provider_type,
+        "greentic.provider.type" = %provider_type,
         greentic.tenant.id = %tenant,
         greentic.team.id = %team,
         otel.status_code = tracing::field::Empty,
     )
 }
+
+// ---------------------------------------------------------------------------
+// Operation metrics (counter + histogram)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "otlp")]
+mod metrics_impl {
+    use once_cell::sync::Lazy;
+    use opentelemetry::{KeyValue, global};
+
+    static OP_DURATION: Lazy<opentelemetry::metrics::Histogram<f64>> = Lazy::new(|| {
+        global::meter("greentic-telemetry")
+            .f64_histogram("greentic.operation.duration_ms")
+            .with_description("Operation end-to-end duration in milliseconds")
+            .build()
+    });
+
+    static OP_COUNT: Lazy<opentelemetry::metrics::Counter<u64>> = Lazy::new(|| {
+        global::meter("greentic-telemetry")
+            .u64_counter("greentic.operation.count")
+            .with_description("Total number of operations")
+            .build()
+    });
+
+    pub fn record(op_name: &str, provider_type: &str, status: &str, duration_ms: f64) {
+        let attrs = [
+            KeyValue::new("greentic.op.name", op_name.to_string()),
+            KeyValue::new("greentic.provider.type", provider_type.to_string()),
+            KeyValue::new("greentic.op.status", status.to_string()),
+        ];
+        OP_DURATION.record(duration_ms, &attrs);
+        OP_COUNT.add(1, &attrs);
+    }
+}
+
+/// Record operation duration and count metrics (no-op when `otlp` feature is disabled).
+#[cfg(feature = "otlp")]
+pub fn record_operation_metric(op_name: &str, provider_type: &str, status: &str, duration_ms: f64) {
+    metrics_impl::record(op_name, provider_type, status, duration_ms);
+}
+
+#[cfg(not(feature = "otlp"))]
+pub fn record_operation_metric(_op_name: &str, _provider_type: &str, _status: &str, _duration_ms: f64) {}
 
 #[cfg(test)]
 mod tests {
