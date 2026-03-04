@@ -234,6 +234,64 @@ pub fn init_from_provider_config(config: &TelemetryProviderConfig) -> Result<()>
     init_telemetry_from_config(TelemetryConfig { service_name }, export)
 }
 
+// ---------------------------------------------------------------------------
+// Config validation (called by operator after receiving provider config)
+// ---------------------------------------------------------------------------
+
+/// Known export modes.
+const KNOWN_EXPORT_MODES: &[&str] = &["otlp-grpc", "otlp-http", "json-stdout", "none"];
+
+/// Header keys that should be secrets-backed rather than plain text.
+const SENSITIVE_HEADER_KEYS: &[&str] = &[
+    "authorization",
+    "api-key",
+    "x-api-key",
+    "x-honeycomb-team",
+    "dd_api_key",
+    "dd-api-key",
+];
+
+/// Validate a [`TelemetryProviderConfig`] and return a list of warnings.
+///
+/// Checks:
+/// - `export_mode` is a known value
+/// - `endpoint` is present when export mode requires it (otlp-grpc, otlp-http)
+/// - Headers with sensitive keys are flagged (should be secrets-backed)
+pub fn validate_telemetry_config(config: &TelemetryProviderConfig) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mode_lower = config.export_mode.to_ascii_lowercase();
+
+    // 1. Unknown export mode
+    if !KNOWN_EXPORT_MODES.contains(&mode_lower.as_str()) {
+        warnings.push(format!(
+            "unknown export_mode '{}'; expected one of: {}",
+            config.export_mode,
+            KNOWN_EXPORT_MODES.join(", ")
+        ));
+    }
+
+    // 2. Endpoint required for OTLP modes (unless preset provides a default)
+    let needs_endpoint = matches!(mode_lower.as_str(), "otlp-grpc" | "otlp-http");
+    if needs_endpoint && config.endpoint.is_none() && config.preset.is_none() {
+        warnings.push(format!(
+            "export_mode '{}' requires an endpoint but none is configured and no preset is set",
+            config.export_mode
+        ));
+    }
+
+    // 3. Sensitive headers should be secrets-backed
+    for key in config.headers.keys() {
+        if SENSITIVE_HEADER_KEYS.contains(&key.to_ascii_lowercase().as_str()) {
+            warnings.push(format!(
+                "header '{}' appears to contain credentials; consider using secrets-backed values",
+                key
+            ));
+        }
+    }
+
+    warnings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +505,89 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(config.service_name.as_deref(), Some("my-service"));
+    }
+
+    // --- validate_telemetry_config tests ---
+
+    #[test]
+    fn validate_default_config_no_warnings() {
+        let config = TelemetryProviderConfig::default();
+        let warnings = validate_telemetry_config(&config);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn validate_unknown_export_mode() {
+        let config = TelemetryProviderConfig {
+            export_mode: "kafka".into(),
+            ..Default::default()
+        };
+        let warnings = validate_telemetry_config(&config);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("unknown export_mode"));
+    }
+
+    #[test]
+    fn validate_otlp_grpc_without_endpoint_warns() {
+        let config = TelemetryProviderConfig {
+            export_mode: "otlp-grpc".into(),
+            endpoint: None,
+            preset: None,
+            ..Default::default()
+        };
+        let warnings = validate_telemetry_config(&config);
+        assert!(warnings.iter().any(|w| w.contains("requires an endpoint")));
+    }
+
+    #[test]
+    fn validate_otlp_grpc_with_preset_no_endpoint_ok() {
+        let config = TelemetryProviderConfig {
+            export_mode: "otlp-grpc".into(),
+            endpoint: None,
+            preset: Some("jaeger".into()),
+            ..Default::default()
+        };
+        let warnings = validate_telemetry_config(&config);
+        assert!(!warnings.iter().any(|w| w.contains("requires an endpoint")));
+    }
+
+    #[test]
+    fn validate_otlp_grpc_with_endpoint_ok() {
+        let config = TelemetryProviderConfig {
+            export_mode: "otlp-grpc".into(),
+            endpoint: Some("http://localhost:4317".into()),
+            ..Default::default()
+        };
+        let warnings = validate_telemetry_config(&config);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn validate_sensitive_header_warns() {
+        let config = TelemetryProviderConfig {
+            headers: {
+                let mut h = HashMap::new();
+                h.insert("x-honeycomb-team".into(), "my-key".into());
+                h
+            },
+            ..Default::default()
+        };
+        let warnings = validate_telemetry_config(&config);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("credentials"));
+    }
+
+    #[test]
+    fn validate_non_sensitive_header_ok() {
+        let config = TelemetryProviderConfig {
+            headers: {
+                let mut h = HashMap::new();
+                h.insert("x-custom-header".into(), "value".into());
+                h
+            },
+            ..Default::default()
+        };
+        let warnings = validate_telemetry_config(&config);
+        assert!(warnings.is_empty());
     }
 }
