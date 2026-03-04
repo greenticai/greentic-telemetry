@@ -249,7 +249,15 @@ mod tests {
             ..Default::default()
         };
         // Should not panic; denied events are silently skipped
-        emit_operation_completed(&config, "op1", "send_payload", "tenant1", "team1", "denied", 0);
+        emit_operation_completed(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            "denied",
+            0,
+        );
     }
 
     #[test]
@@ -260,7 +268,15 @@ mod tests {
             ..Default::default()
         };
         // Should not panic
-        emit_operation_completed(&config, "op1", "send_payload", "tenant1", "team1", "denied", 0);
+        emit_operation_completed(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            "denied",
+            0,
+        );
     }
 
     #[test]

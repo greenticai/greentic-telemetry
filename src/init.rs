@@ -193,6 +193,20 @@ fn install_otlp_inner(endpoint: &str, resource: Resource) -> Result<()> {
     global::set_meter_provider(meter_provider.clone());
     let _ = METER_PROVIDER.set(meter_provider);
 
+    // Bridge tracing crate spans → OpenTelemetry via tracing-opentelemetry layer.
+    // Without this, tracing::info_span!() etc. never reach the OTLP exporter.
+    // Use the concrete provider reference (not global::tracer) to ensure the
+    // resource (service.name) is correctly propagated to exported spans.
+    {
+        use opentelemetry::trace::TracerProvider as _;
+        let provider = TRACER_PROVIDER.get().unwrap();
+        let tracer = provider.tracer("greentic-telemetry");
+        let subscriber = Registry::default()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer));
+        let _ = subscriber.try_init();
+    }
+
     Ok(())
 }
 
@@ -338,7 +352,9 @@ fn install_otlp_from_export_inner(cfg: TelemetryConfig, export: ExportConfig) ->
     let _ = METER_PROVIDER.set(meter_provider);
 
     {
-        let tracer = global::tracer("greentic-telemetry");
+        use opentelemetry::trace::TracerProvider as _;
+        let provider = TRACER_PROVIDER.get().unwrap();
+        let tracer = provider.tracer("greentic-telemetry");
 
         let subscriber = Registry::default()
             .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))

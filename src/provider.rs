@@ -118,13 +118,14 @@ pub fn to_export_config(config: &TelemetryProviderConfig) -> ExportConfig {
         Sampling::TraceIdRatio(config.sampling_ratio)
     };
 
-    let compression = config
-        .compression
-        .as_deref()
-        .and_then(|c| match c.to_ascii_lowercase().as_str() {
-            "gzip" => Some(Compression::Gzip),
-            _ => None,
-        });
+    let compression =
+        config
+            .compression
+            .as_deref()
+            .and_then(|c| match c.to_ascii_lowercase().as_str() {
+                "gzip" => Some(Compression::Gzip),
+                _ => None,
+            });
 
     ExportConfig {
         mode,
@@ -183,13 +184,14 @@ fn resolve_with_preset(config: &TelemetryProviderConfig) -> Result<ExportConfig>
         Sampling::TraceIdRatio(config.sampling_ratio)
     };
 
-    let compression = config
-        .compression
-        .as_deref()
-        .and_then(|c| match c.to_ascii_lowercase().as_str() {
-            "gzip" => Some(Compression::Gzip),
-            _ => None,
-        });
+    let compression =
+        config
+            .compression
+            .as_deref()
+            .and_then(|c| match c.to_ascii_lowercase().as_str() {
+                "gzip" => Some(Compression::Gzip),
+                _ => None,
+            });
 
     Ok(ExportConfig {
         mode,
@@ -263,7 +265,9 @@ mod tests {
         assert_eq!(export.mode, ExportMode::OtlpGrpc);
         assert_eq!(export.endpoint.as_deref(), Some("http://collector:4317"));
         assert_eq!(export.headers.get("x-api-key").unwrap(), "secret123");
-        assert!(matches!(export.sampling, Sampling::TraceIdRatio(r) if (r - 0.5).abs() < f64::EPSILON));
+        assert!(
+            matches!(export.sampling, Sampling::TraceIdRatio(r) if (r - 0.5).abs() < f64::EPSILON)
+        );
         assert!(matches!(export.compression, Some(Compression::Gzip)));
     }
 
@@ -295,21 +299,30 @@ mod tests {
             sampling_ratio: 0.0,
             ..Default::default()
         };
-        assert!(matches!(to_export_config(&config).sampling, Sampling::AlwaysOff));
+        assert!(matches!(
+            to_export_config(&config).sampling,
+            Sampling::AlwaysOff
+        ));
 
         // 1.0 → AlwaysOn
         let config = TelemetryProviderConfig {
             sampling_ratio: 1.0,
             ..Default::default()
         };
-        assert!(matches!(to_export_config(&config).sampling, Sampling::AlwaysOn));
+        assert!(matches!(
+            to_export_config(&config).sampling,
+            Sampling::AlwaysOn
+        ));
 
         // In between → TraceIdRatio
         let config = TelemetryProviderConfig {
             sampling_ratio: 0.25,
             ..Default::default()
         };
-        assert!(matches!(to_export_config(&config).sampling, Sampling::TraceIdRatio(_)));
+        assert!(matches!(
+            to_export_config(&config).sampling,
+            Sampling::TraceIdRatio(_)
+        ));
     }
 
     #[test]
@@ -384,7 +397,10 @@ mod tests {
         };
         let export = to_export_config(&config);
         assert_eq!(
-            export.resource_attributes.get("deployment.environment").unwrap(),
+            export
+                .resource_attributes
+                .get("deployment.environment")
+                .unwrap(),
             "staging"
         );
         assert_eq!(

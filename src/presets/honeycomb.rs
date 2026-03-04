@@ -18,9 +18,7 @@ pub fn config() -> Result<PresetConfig> {
         .ok()
         .filter(|v| !v.is_empty())
     {
-        headers
-            .entry("x-honeycomb-team".into())
-            .or_insert(api_key);
+        headers.entry("x-honeycomb-team".into()).or_insert(api_key);
     }
 
     Ok(PresetConfig {
