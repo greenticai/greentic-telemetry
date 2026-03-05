@@ -295,7 +295,7 @@ Point to the collector on port 4319 — traces go to both Jaeger and Tempo:
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4319 \
 GREENTIC_ENV=dev \
-  greentic-operator demo start --bundle demo-bundle
+  gtc op demo start --bundle demo-bundle
 ```
 
 **Option B: Direct to Jaeger**
@@ -305,13 +305,13 @@ Send traces directly to Jaeger on port 4317:
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 GREENTIC_ENV=dev \
-  greentic-operator demo start --bundle demo-bundle
+  gtc op demo start --bundle demo-bundle
 ```
 
 **Option C: Stdout only (no Docker needed)**
 
 ```bash
-GREENTIC_ENV=dev greentic-operator demo start --bundle demo-bundle
+GREENTIC_ENV=dev gtc op demo start --bundle demo-bundle
 ```
 
 Spans appear as structured JSON in terminal output.
@@ -321,7 +321,7 @@ Spans appear as structured JSON in terminal output.
 Send a test message to produce traces:
 
 ```bash
-greentic-operator demo send \
+gtc op demo send \
   --bundle demo-bundle \
   --provider messaging-telegram \
   --to 7951102355 \
@@ -430,7 +430,7 @@ docker run -d --name jaeger \
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 GREENTIC_ENV=dev \
-  greentic-operator demo start --bundle demo-bundle
+  gtc op demo start --bundle demo-bundle
 ```
 
 View: http://localhost:16686 → service `greentic-operator`
