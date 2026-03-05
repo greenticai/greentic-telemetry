@@ -1,5 +1,3 @@
-#[cfg(feature = "aws")]
-mod aws_sigv4_client;
 #[cfg(feature = "otlp")]
 pub mod client;
 pub mod context;

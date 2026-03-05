@@ -13,7 +13,7 @@ use opentelemetry_sdk::{
     resource::Resource,
     trace::{Sampler, SdkTracerProvider},
 };
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
+#[cfg(feature = "otlp")]
 use std::collections::HashMap;
 #[cfg(feature = "dev")]
 use std::io::IsTerminal;
@@ -23,8 +23,6 @@ use tracing_appender::rolling;
 use tracing_subscriber::EnvFilter;
 #[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
 use tracing_subscriber::Registry;
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-use tracing_subscriber::reload;
 #[cfg(any(feature = "dev", feature = "prod-json"))]
 use tracing_subscriber::fmt;
 #[cfg(any(feature = "dev", feature = "prod-json", feature = "otlp", feature = "azure", feature = "gcp"))]
@@ -46,67 +44,6 @@ static TRACER_PROVIDER: OnceCell<SdkTracerProvider> = OnceCell::new();
 static METER_PROVIDER: OnceCell<SdkMeterProvider> = OnceCell::new();
 #[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
 static INIT_GUARD: OnceCell<()> = OnceCell::new();
-
-// Reloadable OTel layer: allows Stage 2 (capability provider upgrade) to
-// hot-swap the OpenTelemetry layer into a subscriber already set by Stage 1.
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-type OtelReloadSub = tracing_subscriber::layer::Layered<EnvFilter, Registry>;
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-type BoxedOtelLayer = Box<dyn tracing_subscriber::Layer<OtelReloadSub> + Send + Sync>;
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-static OTEL_RELOAD_HANDLE: OnceCell<reload::Handle<Option<BoxedOtelLayer>, OtelReloadSub>> =
-    OnceCell::new();
-
-// ---------------------------------------------------------------------------
-// Shared helpers for cloud provider installers
-// ---------------------------------------------------------------------------
-
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-fn build_sampler(sampling: Sampling) -> Sampler {
-    match sampling {
-        Sampling::TraceIdRatio(ratio) if (0.0..1.0).contains(&ratio) && ratio < 1.0 => {
-            Sampler::TraceIdRatioBased(ratio)
-        }
-        Sampling::AlwaysOff => Sampler::AlwaysOff,
-        _ => Sampler::AlwaysOn,
-    }
-}
-
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-fn build_resource(service_name: &str, attrs: &HashMap<String, String>) -> Resource {
-    let mut builder = Resource::builder().with_service_name(service_name.to_string());
-    for (key, value) in attrs {
-        builder = builder.with_attribute(KeyValue::new(key.clone(), value.clone()));
-    }
-    builder.build()
-}
-
-#[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
-fn init_otel_subscriber() {
-    use opentelemetry::trace::TracerProvider as _;
-    let provider = TRACER_PROVIDER.get().unwrap();
-    let tracer = provider.tracer("greentic-telemetry");
-    let otel_layer: BoxedOtelLayer =
-        Box::new(tracing_opentelemetry::layer().with_tracer(tracer));
-
-    // If a subscriber with a reload handle already exists (Stage 1 set it up),
-    // hot-swap the OTel layer into the existing subscriber.
-    if let Some(handle) = OTEL_RELOAD_HANDLE.get() {
-        if let Err(e) = handle.reload(Some(otel_layer)) {
-            eprintln!("warn: failed to reload OTel layer: {e}");
-        }
-        return;
-    }
-
-    // No subscriber exists yet — create one with a reload handle.
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let (reload_layer, handle) = reload::Layer::new(Some(otel_layer));
-    let _ = OTEL_RELOAD_HANDLE.set(handle);
-    let subscriber = Registry::default().with(filter).with(reload_layer);
-    if let Err(e) = subscriber.try_init() {
-        eprintln!("warn: failed to init tracing subscriber: {e}");
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct TelemetryConfig {
@@ -139,23 +76,21 @@ fn init_fmt_layers(_cfg: &TelemetryConfig) -> Result<()> {
             .fmt_fields(RedactingFormatFields)
             .json();
 
-        #[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
+        #[cfg(feature = "otlp")]
         {
-            let initial_otel: Option<BoxedOtelLayer> = TRACER_PROVIDER.get().map(|p| {
+            let otel_layer = TRACER_PROVIDER.get().map(|provider| {
                 use opentelemetry::trace::TracerProvider as _;
-                Box::new(tracing_opentelemetry::layer().with_tracer(p.tracer("greentic-telemetry")))
-                    as BoxedOtelLayer
+                tracing_opentelemetry::layer()
+                    .with_tracer(provider.tracer("greentic-telemetry"))
             });
-            let (reload_layer, handle) = reload::Layer::new(initial_otel);
-            let _ = OTEL_RELOAD_HANDLE.set(handle);
             let _ = tracing_subscriber::registry()
                 .with(filter)
-                .with(reload_layer)
                 .with(layer_stdout)
                 .with(layer_file)
+                .with(otel_layer)
                 .try_init();
         }
-        #[cfg(not(any(feature = "otlp", feature = "azure", feature = "gcp")))]
+        #[cfg(not(feature = "otlp"))]
         {
             let _ = tracing_subscriber::registry()
                 .with(filter)
@@ -172,22 +107,20 @@ fn init_fmt_layers(_cfg: &TelemetryConfig) -> Result<()> {
             .with_target(true)
             .with_span_list(true)
             .fmt_fields(RedactingFormatFields);
-        #[cfg(any(feature = "otlp", feature = "azure", feature = "gcp"))]
+        #[cfg(feature = "otlp")]
         {
-            let initial_otel: Option<BoxedOtelLayer> = TRACER_PROVIDER.get().map(|p| {
+            let otel_layer = TRACER_PROVIDER.get().map(|provider| {
                 use opentelemetry::trace::TracerProvider as _;
-                Box::new(tracing_opentelemetry::layer().with_tracer(p.tracer("greentic-telemetry")))
-                    as BoxedOtelLayer
+                tracing_opentelemetry::layer()
+                    .with_tracer(provider.tracer("greentic-telemetry"))
             });
-            let (reload_layer, handle) = reload::Layer::new(initial_otel);
-            let _ = OTEL_RELOAD_HANDLE.set(handle);
             let _ = tracing_subscriber::registry()
                 .with(filter)
-                .with(reload_layer)
                 .with(layer_json)
+                .with(otel_layer)
                 .try_init();
         }
-        #[cfg(not(any(feature = "otlp", feature = "azure", feature = "gcp")))]
+        #[cfg(not(feature = "otlp"))]
         {
             let _ = tracing_subscriber::registry()
                 .with(filter)
@@ -196,29 +129,20 @@ fn init_fmt_layers(_cfg: &TelemetryConfig) -> Result<()> {
         }
     }
 
-    // When neither dev nor prod-json is enabled but an OTel-capable feature is,
-    // set up a subscriber with a reloadable OTel layer slot.
-    // The slot is initially populated if TRACER_PROVIDER is already set (Stage 1 OTLP),
-    // otherwise it starts as None and gets hot-swapped in Stage 2.
-    #[cfg(all(
-        not(feature = "dev"),
-        not(feature = "prod-json"),
-        any(feature = "otlp", feature = "azure", feature = "gcp")
-    ))]
+    // When neither dev nor prod-json is enabled but otlp is,
+    // create a subscriber with just the OTel layer.
+    #[cfg(all(not(feature = "dev"), not(feature = "prod-json"), feature = "otlp"))]
     {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info"));
-        let initial_otel: Option<BoxedOtelLayer> = TRACER_PROVIDER.get().map(|p| {
+        if let Some(provider) = TRACER_PROVIDER.get() {
             use opentelemetry::trace::TracerProvider as _;
-            Box::new(tracing_opentelemetry::layer().with_tracer(p.tracer("greentic-telemetry")))
-                as BoxedOtelLayer
-        });
-        let (reload_layer, handle) = reload::Layer::new(initial_otel);
-        let _ = OTEL_RELOAD_HANDLE.set(handle);
-        let _ = tracing_subscriber::registry()
-            .with(filter)
-            .with(reload_layer)
-            .try_init();
+            let filter = EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info"));
+            let tracer = provider.tracer("greentic-telemetry");
+            let _ = tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                .try_init();
+        }
     }
 
     #[cfg(feature = "dev-console")]
@@ -389,8 +313,20 @@ fn install_otlp_from_export_inner(cfg: TelemetryConfig, export: ExportConfig) ->
         _ => "http://localhost:4317".into(),
     });
 
-    let resource = build_resource(&cfg.service_name, &export.resource_attributes);
-    let sampler = build_sampler(export.sampling);
+    let mut resource_builder = Resource::builder().with_service_name(cfg.service_name);
+    for (key, value) in &export.resource_attributes {
+        resource_builder =
+            resource_builder.with_attribute(KeyValue::new(key.clone(), value.clone()));
+    }
+    let resource = resource_builder.build();
+
+    let sampler = match export.sampling {
+        Sampling::TraceIdRatio(ratio) if (0.0..1.0).contains(&ratio) && ratio < 1.0 => {
+            Sampler::TraceIdRatioBased(ratio)
+        }
+        Sampling::AlwaysOff => Sampler::AlwaysOff,
+        _ => Sampler::AlwaysOn,
+    };
 
     let span_exporter = if matches!(export.mode, ExportMode::OtlpHttp) {
         let mut builder = SpanExporter::builder()
@@ -457,7 +393,19 @@ fn install_otlp_from_export_inner(cfg: TelemetryConfig, export: ExportConfig) ->
     global::set_meter_provider(meter_provider.clone());
     let _ = METER_PROVIDER.set(meter_provider);
 
-    init_otel_subscriber();
+    {
+        use opentelemetry::trace::TracerProvider as _;
+        let provider = TRACER_PROVIDER.get().unwrap();
+        let tracer = provider.tracer("greentic-telemetry");
+
+        let subscriber = Registry::default()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer));
+
+        if let Err(e) = subscriber.try_init() {
+            eprintln!("warn: failed to init OTLP tracing subscriber: {e}");
+        }
+    }
 
     let _ = INIT_GUARD.set(());
 
@@ -504,6 +452,8 @@ fn install_azure_appinsights_inner(
     mut export: ExportConfig,
     rt_handle: tokio::runtime::Handle,
 ) -> Result<()> {
+    use opentelemetry::trace::TracerProvider as _;
+
     // Extract connection string: prefer header injected by telemetry provider WASM,
     // then env var, then reconstruct from endpoint + ikey header.
     let conn_str = export
@@ -527,8 +477,21 @@ fn install_azure_appinsights_inner(
 
     let http_client = reqwest::Client::new();
 
-    let resource = build_resource(&cfg.service_name, &export.resource_attributes);
-    let sampler = build_sampler(export.sampling);
+    // Build resource
+    let mut resource_builder = Resource::builder().with_service_name(cfg.service_name);
+    for (key, value) in &export.resource_attributes {
+        resource_builder =
+            resource_builder.with_attribute(KeyValue::new(key.clone(), value.clone()));
+    }
+    let resource = resource_builder.build();
+
+    let sampler = match export.sampling {
+        Sampling::TraceIdRatio(ratio) if (0.0..1.0).contains(&ratio) && ratio < 1.0 => {
+            Sampler::TraceIdRatioBased(ratio)
+        }
+        Sampling::AlwaysOff => Sampler::AlwaysOff,
+        _ => Sampler::AlwaysOn,
+    };
 
     // Trace exporter — wrap with runtime binding so the batch processor
     // thread (plain OS thread) can use reqwest for HTTP calls.
@@ -571,7 +534,17 @@ fn install_azure_appinsights_inner(
     global::set_meter_provider(meter_provider.clone());
     let _ = METER_PROVIDER.set(meter_provider);
 
-    init_otel_subscriber();
+    // Subscriber with OTel layer
+    {
+        let provider = TRACER_PROVIDER.get().unwrap();
+        let tracer = provider.tracer("greentic-telemetry");
+        let subscriber = Registry::default()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer));
+        if let Err(e) = subscriber.try_init() {
+            eprintln!("warn: failed to init Azure App Insights tracing subscriber: {e}");
+        }
+    }
 
     let _ = INIT_GUARD.set(());
     Ok(())
@@ -586,14 +559,14 @@ fn install_azure_appinsights_inner(
 // within the dedicated runtime we created above.
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "azure", feature = "aws"))]
+#[cfg(feature = "azure")]
 #[derive(Debug)]
 struct RuntimeBoundSpanExporter<E> {
     inner: E,
     rt: tokio::runtime::Handle,
 }
 
-#[cfg(any(feature = "azure", feature = "aws"))]
+#[cfg(feature = "azure")]
 impl<E: opentelemetry_sdk::trace::SpanExporter + 'static>
     opentelemetry_sdk::trace::SpanExporter for RuntimeBoundSpanExporter<E>
 {
@@ -610,14 +583,14 @@ impl<E: opentelemetry_sdk::trace::SpanExporter + 'static>
     }
 }
 
-#[cfg(any(feature = "azure", feature = "aws"))]
+#[cfg(feature = "azure")]
 #[derive(Debug)]
 struct RuntimeBoundMetricExporter<E> {
     inner: E,
     rt: tokio::runtime::Handle,
 }
 
-#[cfg(any(feature = "azure", feature = "aws"))]
+#[cfg(feature = "azure")]
 impl<E: opentelemetry_sdk::metrics::exporter::PushMetricExporter>
     opentelemetry_sdk::metrics::exporter::PushMetricExporter for RuntimeBoundMetricExporter<E>
 {
@@ -655,157 +628,49 @@ fn install_aws_xray(cfg: TelemetryConfig, export: ExportConfig) -> Result<()> {
         return Ok(());
     }
 
-    // Always create a dedicated runtime — AWS config loading is async and
-    // block_on panics if called from within an existing async context.
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .enable_all()
-        .build()
-        .map_err(|e| anyhow!("failed to create tokio runtime for AWS X-Ray init: {e}"))?;
-    let handle = rt.handle().clone();
-    let _guard = rt.enter();
-    let result = install_aws_xray_inner(cfg, export, handle);
-    std::mem::forget(rt);
-    result
+    if tokio::runtime::Handle::try_current().is_err() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .map_err(|e| anyhow!("failed to create tokio runtime for AWS X-Ray init: {e}"))?;
+        let _guard = rt.enter();
+        let result = install_aws_xray_inner(cfg, export);
+        std::mem::forget(rt);
+        return result;
+    }
+    install_aws_xray_inner(cfg, export)
 }
 
 #[cfg(feature = "aws")]
-fn install_aws_xray_inner(
-    cfg: TelemetryConfig,
-    export: ExportConfig,
-    rt_handle: tokio::runtime::Handle,
-) -> Result<()> {
+fn install_aws_xray_inner(cfg: TelemetryConfig, export: ExportConfig) -> Result<()> {
+    use opentelemetry::trace::TracerProvider as _;
+
     // AWS X-Ray uses its own propagator for trace context and ID generator
     // for X-Ray compatible trace IDs (time-based first 32 bits).
-    global::set_text_map_propagator(opentelemetry_aws::trace::XrayPropagator::default());
+    global::set_text_map_propagator(
+        opentelemetry_aws::trace::XrayPropagator::default(),
+    );
 
-    let resource = build_resource(&cfg.service_name, &export.resource_attributes);
-    let sampler = build_sampler(export.sampling);
-
-    // Direct mode: no endpoint → send OTLP/HTTP directly to AWS X-Ray with SigV4.
-    // Collector mode: endpoint provided → send OTLP/gRPC to ADOT collector.
-    let direct_mode = export.endpoint.is_none();
-
-    if direct_mode {
-        install_aws_xray_direct(cfg, export, resource, sampler, rt_handle)
-    } else {
-        install_aws_xray_collector(export, resource, sampler)
-    }
-}
-
-/// Direct mode: OTLP/HTTP to AWS X-Ray endpoint with SigV4 signing.
-/// No ADOT collector needed.
-#[cfg(feature = "aws")]
-fn install_aws_xray_direct(
-    _cfg: TelemetryConfig,
-    export: ExportConfig,
-    resource: Resource,
-    sampler: Sampler,
-    rt_handle: tokio::runtime::Handle,
-) -> Result<()> {
-    use crate::aws_sigv4_client::SigV4HttpClient;
-    use opentelemetry_otlp::WithHttpConfig;
-
-    // Load AWS config (credentials + region) in a separate thread
-    // to avoid nested runtime panic.
-    let rt_for_init = rt_handle.clone();
-    let aws_config = std::thread::spawn(move || {
-        rt_for_init.block_on(async {
-            aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await
-        })
-    })
-    .join()
-    .map_err(|_| anyhow!("AWS config loading thread panicked"))?;
-
-    let region = export
-        .headers
-        .get("_aws_region")
-        .cloned()
-        .or_else(|| {
-            aws_config
-                .region()
-                .map(|r| r.as_ref().to_string())
-        })
-        .ok_or_else(|| {
-            anyhow!(
-                "AWS X-Ray direct mode requires a region. \
-                 Set AWS_REGION or AWS_DEFAULT_REGION"
-            )
-        })?;
-
-    let credentials_provider = aws_config
-        .credentials_provider()
-        .ok_or_else(|| {
-            anyhow!(
-                "No AWS credentials found. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY \
-                 or configure ~/.aws/credentials"
-            )
-        })?
-        .clone();
-
-    let endpoint = format!("https://xray.{region}.amazonaws.com");
-    eprintln!("AWS X-Ray direct mode: endpoint={endpoint}, region={region}");
-
-    // Create SigV4 HTTP client
-    let sigv4_client = SigV4HttpClient::new(credentials_provider, region);
-
-    // Build OTLP/HTTP span exporter with SigV4 client.
-    // Wrap with RuntimeBound so the batch processor's background thread
-    // has access to a tokio runtime for DNS resolution (hyper-util).
-    let span_exporter = SpanExporter::builder()
-        .with_http()
-        .with_http_client(sigv4_client.clone())
-        .with_endpoint(&endpoint)
-        .build()
-        .map_err(|e| anyhow!("AWS X-Ray span exporter build failed: {e}"))?;
-    let span_exporter = redaction::wrap_span_exporter(span_exporter);
-    let span_exporter = RuntimeBoundSpanExporter {
-        inner: span_exporter,
-        rt: rt_handle.clone(),
-    };
-
-    let tracer_provider = SdkTracerProvider::builder()
-        .with_batch_exporter(span_exporter)
-        .with_sampler(sampler)
-        .with_id_generator(opentelemetry_aws::trace::XrayIdGenerator::default())
-        .with_resource(resource.clone())
-        .build();
-    global::set_tracer_provider(tracer_provider.clone());
-    let _ = TRACER_PROVIDER.set(tracer_provider);
-
-    // Metric exporter (OTLP/HTTP with SigV4), also runtime-bound.
-    let metric_exporter = MetricExporter::builder()
-        .with_http()
-        .with_http_client(sigv4_client)
-        .with_endpoint(&endpoint)
-        .build()
-        .map_err(|e| anyhow!("AWS X-Ray metric exporter build failed: {e}"))?;
-    let metric_exporter = RuntimeBoundMetricExporter {
-        inner: metric_exporter,
-        rt: rt_handle,
-    };
-
-    let meter_provider = SdkMeterProvider::builder()
-        .with_resource(resource)
-        .with_periodic_exporter(metric_exporter)
-        .build();
-    global::set_meter_provider(meter_provider.clone());
-    let _ = METER_PROVIDER.set(meter_provider);
-
-    init_otel_subscriber();
-    let _ = INIT_GUARD.set(());
-    Ok(())
-}
-
-/// Collector mode: OTLP/gRPC to an ADOT collector (existing behavior).
-#[cfg(feature = "aws")]
-fn install_aws_xray_collector(
-    export: ExportConfig,
-    resource: Resource,
-    sampler: Sampler,
-) -> Result<()> {
     let endpoint = export.endpoint.unwrap_or_else(|| "http://localhost:4317".into());
 
+    let mut resource_builder = Resource::builder().with_service_name(cfg.service_name);
+    for (key, value) in &export.resource_attributes {
+        resource_builder =
+            resource_builder.with_attribute(KeyValue::new(key.clone(), value.clone()));
+    }
+    let resource = resource_builder.build();
+
+    let sampler = match export.sampling {
+        Sampling::TraceIdRatio(ratio) if (0.0..1.0).contains(&ratio) && ratio < 1.0 => {
+            Sampler::TraceIdRatioBased(ratio)
+        }
+        Sampling::AlwaysOff => Sampler::AlwaysOff,
+        _ => Sampler::AlwaysOn,
+    };
+
+    // Build OTLP span exporter — AWS X-Ray accepts OTLP gRPC natively.
+    // Set auth headers (x-api-key) via env vars for tonic.
     if !export.headers.is_empty() {
         if let Some(serialized) = serialize_headers(&export.headers) {
             unsafe {
@@ -815,7 +680,6 @@ fn install_aws_xray_collector(
             }
         }
     }
-
     let mut span_builder = SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint.clone());
@@ -834,6 +698,7 @@ fn install_aws_xray_collector(
     global::set_tracer_provider(tracer_provider.clone());
     let _ = TRACER_PROVIDER.set(tracer_provider);
 
+    // Metric exporter (same OTLP transport to AWS)
     let mut metric_builder = MetricExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint);
@@ -849,7 +714,18 @@ fn install_aws_xray_collector(
     global::set_meter_provider(meter_provider.clone());
     let _ = METER_PROVIDER.set(meter_provider);
 
-    init_otel_subscriber();
+    // Subscriber with OTel layer
+    {
+        let provider = TRACER_PROVIDER.get().unwrap();
+        let tracer = provider.tracer("greentic-telemetry");
+        let subscriber = Registry::default()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer));
+        if let Err(e) = subscriber.try_init() {
+            eprintln!("warn: failed to init AWS X-Ray tracing subscriber: {e}");
+        }
+    }
+
     let _ = INIT_GUARD.set(());
     Ok(())
 }
@@ -864,29 +740,24 @@ fn install_gcp_cloud_trace(cfg: TelemetryConfig, export: ExportConfig) -> Result
         return Ok(());
     }
 
-    // Always create a dedicated runtime for the GCP exporter.
-    // The GCP Cloud Trace builder is async and uses handle.block_on(),
-    // which panics if called from within an existing async context
-    // (e.g. tokio::test). A dedicated runtime avoids this conflict.
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .enable_all()
-        .build()
-        .map_err(|e| anyhow!("failed to create tokio runtime for GCP init: {e}"))?;
-    let handle = rt.handle().clone();
-    let _guard = rt.enter();
-    let result = install_gcp_cloud_trace_inner(cfg, export, handle);
-    // Leak the runtime so background export tasks keep running.
-    std::mem::forget(rt);
-    result
+    if tokio::runtime::Handle::try_current().is_err() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .map_err(|e| anyhow!("failed to create tokio runtime for GCP init: {e}"))?;
+        let _guard = rt.enter();
+        let result = install_gcp_cloud_trace_inner(cfg, export);
+        std::mem::forget(rt);
+        return result;
+    }
+    install_gcp_cloud_trace_inner(cfg, export)
 }
 
 #[cfg(feature = "gcp")]
-fn install_gcp_cloud_trace_inner(
-    cfg: TelemetryConfig,
-    mut export: ExportConfig,
-    rt_handle: tokio::runtime::Handle,
-) -> Result<()> {
+fn install_gcp_cloud_trace_inner(cfg: TelemetryConfig, mut export: ExportConfig) -> Result<()> {
+    use opentelemetry::trace::TracerProvider as _;
+
     // Extract GCP project ID from headers (set by telemetry provider component),
     // then environment variables.
     let project_id = export
@@ -904,35 +775,36 @@ fn install_gcp_cloud_trace_inner(
 
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    // Ensure a TLS crypto provider is available for gRPC connections.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut resource_builder = Resource::builder().with_service_name(cfg.service_name);
+    for (key, value) in &export.resource_attributes {
+        resource_builder =
+            resource_builder.with_attribute(KeyValue::new(key.clone(), value.clone()));
+    }
+    let resource = resource_builder.build();
 
-    let resource = build_resource(&cfg.service_name, &export.resource_attributes);
-    let sampler = build_sampler(export.sampling);
+    let sampler = match export.sampling {
+        Sampling::TraceIdRatio(ratio) if (0.0..1.0).contains(&ratio) && ratio < 1.0 => {
+            Sampler::TraceIdRatioBased(ratio)
+        }
+        Sampling::AlwaysOff => Sampler::AlwaysOff,
+        _ => Sampler::AlwaysOn,
+    };
 
     // GCP Cloud Trace exporter creation is async (sets up gRPC channel).
-    // Run block_on in a separate thread to avoid "cannot start a runtime
-    // from within a runtime" when called from an async context.
-    let tracer_provider: SdkTracerProvider = {
-        let handle = rt_handle.clone();
-        std::thread::spawn(move || {
-            handle.block_on(async {
-                let gcp_builder =
-                    opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder::new(project_id);
+    let handle = tokio::runtime::Handle::current();
+    let tracer_provider: SdkTracerProvider = handle.block_on(async {
+        let gcp_builder =
+            opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder::new(project_id);
 
-                gcp_builder
-                    .create_provider_from_builder(
-                        SdkTracerProvider::builder()
-                            .with_sampler(sampler)
-                            .with_resource(resource),
-                    )
-                    .await
-                    .map_err(|e| anyhow!("GCP Cloud Trace provider creation failed: {e}"))
-            })
-        })
-        .join()
-        .map_err(|_| anyhow!("GCP Cloud Trace init thread panicked"))?
-    }?;
+        gcp_builder
+            .create_provider_from_builder(
+                SdkTracerProvider::builder()
+                    .with_sampler(sampler)
+                    .with_resource(resource),
+            )
+            .await
+            .map_err(|e| anyhow!("GCP Cloud Trace provider creation failed: {e}"))
+    })?;
 
     global::set_tracer_provider(tracer_provider.clone());
     let _ = TRACER_PROVIDER.set(tracer_provider);
@@ -940,7 +812,17 @@ fn install_gcp_cloud_trace_inner(
     // GCP Cloud Trace handles traces only; metrics are not exported.
     // Use a separate OTLP metrics pipeline if needed.
 
-    init_otel_subscriber();
+    // Subscriber with OTel layer
+    {
+        let provider = TRACER_PROVIDER.get().unwrap();
+        let tracer = provider.tracer("greentic-telemetry");
+        let subscriber = Registry::default()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(tracing_opentelemetry::layer().with_tracer(tracer));
+        if let Err(e) = subscriber.try_init() {
+            eprintln!("warn: failed to init GCP Cloud Trace tracing subscriber: {e}");
+        }
+    }
 
     let _ = INIT_GUARD.set(());
     Ok(())
