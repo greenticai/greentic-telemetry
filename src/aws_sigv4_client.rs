@@ -114,6 +114,17 @@ impl opentelemetry_http::HttpClient for SigV4HttpClient {
             .await
             .map_err(|e| format!("Failed to read response body: {e}"))?;
 
+        if !status.is_success() {
+            let body_str = String::from_utf8_lossy(&resp_body);
+            eprintln!(
+                "AWS X-Ray export response: status={} body={}",
+                status,
+                &body_str[..body_str.len().min(500)]
+            );
+        } else {
+            eprintln!("AWS X-Ray export: OK (status={})", status);
+        }
+
         let mut builder = Response::builder().status(status);
         for (k, v) in &resp_headers {
             builder = builder.header(k, v);

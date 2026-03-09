@@ -698,13 +698,26 @@ fn install_aws_xray_inner(
 #[cfg(feature = "aws")]
 fn install_aws_xray_direct(
     _cfg: TelemetryConfig,
-    export: ExportConfig,
+    mut export: ExportConfig,
     resource: Resource,
     sampler: Sampler,
     rt_handle: tokio::runtime::Handle,
 ) -> Result<()> {
     use crate::aws_sigv4_client::SigV4HttpClient;
     use opentelemetry_otlp::WithHttpConfig;
+
+    // Inject credentials from headers (set by telemetry capability component
+    // reading from secrets store) into env vars so aws_config picks them up.
+    // Safety: called during single-threaded init before spawning workers.
+    if let Some(access_key) = export.headers.remove("_aws_access_key_id") {
+        unsafe { std::env::set_var("AWS_ACCESS_KEY_ID", &access_key) };
+    }
+    if let Some(secret_key) = export.headers.remove("_aws_secret_access_key") {
+        unsafe { std::env::set_var("AWS_SECRET_ACCESS_KEY", &secret_key) };
+    }
+    if let Some(region) = export.headers.get("_aws_region") {
+        unsafe { std::env::set_var("AWS_REGION", region) };
+    }
 
     // Load AWS config (credentials + region) in a separate thread
     // to avoid nested runtime panic.
