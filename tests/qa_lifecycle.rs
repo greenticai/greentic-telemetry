@@ -1,9 +1,7 @@
 //! QA lifecycle tests — verifies that config produced by setup.default
 //! round-trips correctly, and that toggle/update operations work as expected.
 
-use greentic_telemetry::operation_subs::{
-    PayloadPolicy, SubsMode, subs_config_from_provider,
-};
+use greentic_telemetry::operation_subs::{PayloadPolicy, SubsMode, subs_config_from_provider};
 use greentic_telemetry::provider::{
     TelemetryProviderConfig, TenantAttribution, validate_telemetry_config,
 };
@@ -298,7 +296,10 @@ fn full_config_serde_roundtrip() {
     );
     assert_eq!(deserialized.sampling_ratio, 0.5);
     assert_eq!(deserialized.compression.as_deref(), Some("gzip"));
-    assert_eq!(deserialized.operation_subs_mode.as_deref(), Some("traces_only"));
+    assert_eq!(
+        deserialized.operation_subs_mode.as_deref(),
+        Some("traces_only")
+    );
     assert!(!deserialized.include_denied_ops);
     assert_eq!(deserialized.payload_policy.as_deref(), Some("hash_only"));
     assert_eq!(deserialized.min_log_level.as_deref(), Some("warn"));

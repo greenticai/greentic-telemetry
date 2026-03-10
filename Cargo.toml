@@ -41,12 +41,22 @@ azure = [
 aws = [
     "otlp",
     "dep:opentelemetry-aws",
+    "dep:async-trait",
+    "dep:aws-config",
+    "dep:aws-sigv4",
+    "dep:aws-credential-types",
+    "dep:aws-smithy-runtime-api",
+    "dep:opentelemetry-http",
+    "dep:reqwest",
+    "dep:bytes",
+    "dep:http",
 ]
 gcp = [
     "opentelemetry",
     "opentelemetry_sdk",
     "tracing-opentelemetry",
     "dep:opentelemetry-gcloud-trace",
+    "dep:rustls",
 ]
 
 [dependencies]
@@ -71,6 +81,14 @@ opentelemetry-http = { version = "0.31", features = ["reqwest"], optional = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
 opentelemetry-aws = { version = "0.19", default-features = false, features = ["trace"], optional = true }
 opentelemetry-gcloud-trace = { version = "0.22", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
+async-trait = { version = "0.1", optional = true }
+aws-config = { version = "1", optional = true }
+aws-sigv4 = { version = "1", optional = true }
+aws-credential-types = { version = "1", optional = true }
+aws-smithy-runtime-api = { version = "1", features = ["client"], optional = true }
+bytes = { version = "1", optional = true }
+http = { version = "1", optional = true }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4"] }

@@ -19,7 +19,11 @@ struct EventCapture {
 }
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for EventCapture {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         struct MsgVisitor(String);
         impl tracing::field::Visit for MsgVisitor {
             fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
@@ -71,7 +75,15 @@ fn operation_emits_requested_and_completed_events() {
     let events = with_capture(|| {
         let root = operation_root_span("send_payload", "messaging.telegram", "tenant1", "team1");
         let _guard = root.enter();
-        emit_operation_requested(&config, "op1", "send_payload", "tenant1", "team1", 100, None);
+        emit_operation_requested(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            100,
+            None,
+        );
         emit_operation_completed(
             &config,
             "op1",
@@ -137,7 +149,15 @@ fn disabled_config_emits_nothing() {
     let events = with_capture(|| {
         let root = operation_root_span("send_payload", "messaging.telegram", "tenant1", "team1");
         let _guard = root.enter();
-        emit_operation_requested(&config, "op1", "send_payload", "tenant1", "team1", 100, None);
+        emit_operation_requested(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            100,
+            None,
+        );
         emit_operation_completed(
             &config,
             "op1",
@@ -172,7 +192,15 @@ fn metrics_only_mode_no_trace_events() {
     let events = with_capture(|| {
         let root = operation_root_span("send_payload", "messaging.telegram", "tenant1", "team1");
         let _guard = root.enter();
-        emit_operation_requested(&config, "op1", "send_payload", "tenant1", "team1", 100, None);
+        emit_operation_requested(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            100,
+            None,
+        );
         emit_operation_completed(
             &config,
             "op1",
@@ -207,7 +235,15 @@ fn denied_operation_emits_events_when_included() {
     let events = with_capture(|| {
         let root = operation_root_span("send_payload", "messaging.telegram", "tenant1", "team1");
         let _guard = root.enter();
-        emit_operation_requested(&config, "op1", "send_payload", "tenant1", "team1", 100, None);
+        emit_operation_requested(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            100,
+            None,
+        );
         emit_operation_error(&config, "op1", "denied", "hook denied");
         emit_operation_completed(
             &config,
@@ -247,7 +283,15 @@ fn denied_operation_skips_completed_when_excluded() {
     let events = with_capture(|| {
         let root = operation_root_span("send_payload", "messaging.telegram", "tenant1", "team1");
         let _guard = root.enter();
-        emit_operation_requested(&config, "op1", "send_payload", "tenant1", "team1", 100, None);
+        emit_operation_requested(
+            &config,
+            "op1",
+            "send_payload",
+            "tenant1",
+            "team1",
+            100,
+            None,
+        );
         emit_operation_completed(
             &config,
             "op1",
@@ -286,15 +330,7 @@ fn excluded_ops_produce_no_events() {
     let events = with_capture(|| {
         let root = operation_root_span("healthcheck", "system", "tenant1", "team1");
         let _guard = root.enter();
-        emit_operation_requested(
-            &config,
-            "op1",
-            "healthcheck",
-            "tenant1",
-            "team1",
-            0,
-            None,
-        );
+        emit_operation_requested(&config, "op1", "healthcheck", "tenant1", "team1", 0, None);
         emit_operation_completed(
             &config,
             "op1",
@@ -412,7 +448,12 @@ fn attributed_root_span_created_without_panic() {
 #[test]
 fn metric_functions_dont_panic() {
     record_operation_metric("send_payload", "messaging.telegram", "ok", 100.0, "tenant1");
-    record_operation_error_metric("send_payload", "messaging.telegram", "invoke_error", "tenant1");
+    record_operation_error_metric(
+        "send_payload",
+        "messaging.telegram",
+        "invoke_error",
+        "tenant1",
+    );
 
     let config = OperationSubsConfig {
         include_team_in_metrics: true,
