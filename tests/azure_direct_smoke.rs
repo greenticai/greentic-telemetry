@@ -9,8 +9,8 @@
 //!   cargo test --features azure --test azure_direct_smoke -- --nocapture --ignored
 //! ```
 
-use opentelemetry::trace::{SpanId, SpanKind, Status, TraceFlags, TraceId, TraceState};
 use opentelemetry::KeyValue;
+use opentelemetry::trace::{SpanId, SpanKind, Status, TraceFlags, TraceId, TraceState};
 use opentelemetry_sdk::resource::Resource;
 use opentelemetry_sdk::trace::{SpanData, SpanExporter};
 use std::borrow::Cow;

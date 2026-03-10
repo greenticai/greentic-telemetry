@@ -73,9 +73,7 @@ fn malformed_log_level_rejected() {
     };
     let warnings = validate_telemetry_config(&config);
     assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("unknown min_log_level")),
+        warnings.iter().any(|w| w.contains("unknown min_log_level")),
         "expected warning about unknown log level, got: {warnings:?}"
     );
 }
@@ -234,9 +232,11 @@ fn tls_cert_without_key_warns() {
         ..Default::default()
     };
     let warnings = validate_telemetry_config(&config);
-    assert!(warnings
-        .iter()
-        .any(|w| w.contains("client_cert_pem without client_key_pem")));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("client_cert_pem without client_key_pem"))
+    );
 }
 
 #[test]
@@ -250,9 +250,11 @@ fn tls_key_without_cert_warns() {
         ..Default::default()
     };
     let warnings = validate_telemetry_config(&config);
-    assert!(warnings
-        .iter()
-        .any(|w| w.contains("client_cert_pem without client_key_pem")));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("client_cert_pem without client_key_pem"))
+    );
 }
 
 #[test]
