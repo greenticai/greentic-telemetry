@@ -1,2 +1,5 @@
 /target
 .dev-logs/
+
+# OS
+.DS_Store
