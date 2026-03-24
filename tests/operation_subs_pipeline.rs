@@ -57,12 +57,16 @@ where
         events: Arc::clone(&events),
     };
     let subscriber = tracing_subscriber::registry().with(layer);
-    // Use a local dispatcher to avoid global state conflicts
-    tracing::dispatcher::with_default(&subscriber.into(), f);
-    Arc::try_unwrap(events)
-        .expect("refs should be dropped")
-        .into_inner()
-        .unwrap()
+    // Use a local dispatcher to avoid global state conflicts.
+    let dispatch: tracing::Dispatch = subscriber.into();
+    tracing::dispatcher::with_default(&dispatch, f);
+    // Drop the dispatch explicitly so the subscriber (and its EventCapture
+    // layer) is released before we read the captured events.
+    drop(dispatch);
+    // Lock-and-drain instead of Arc::try_unwrap — the tracing dispatcher
+    // machinery may briefly hold extra Arc<Dispatch> clones in thread-local
+    // storage during parallel test execution, making try_unwrap flaky.
+    events.lock().unwrap().drain(..).collect()
 }
 
 // ---------------------------------------------------------------------------
