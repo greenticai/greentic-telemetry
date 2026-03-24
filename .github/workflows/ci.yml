@@ -6,7 +6,7 @@ permissions:
 on:
   workflow_call:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 jobs:
