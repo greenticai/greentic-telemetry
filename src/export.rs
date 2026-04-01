@@ -6,6 +6,7 @@ use anyhow::{Context, Result, anyhow};
 use crate::presets::{self, CloudPreset, PresetConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ExportMode {
     JsonStdout,
     OtlpGrpc,
@@ -32,6 +33,7 @@ pub enum Sampling {
     allow(dead_code)
 )]
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ExportConfig {
     pub mode: ExportMode,
     pub endpoint: Option<String>,

@@ -18,25 +18,27 @@ pub mod stdout;
 pub mod zipkin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CloudPreset {
-    Aws,
-    Gcp,
-    Azure,
-    Datadog,
-    Loki,
-    Honeycomb,
-    NewRelic,
-    Elastic,
-    GrafanaTempo,
-    Jaeger,
-    Zipkin,
-    OtlpGrpc,
-    OtlpHttp,
-    Stdout,
-    None,
+    Aws = 0,
+    Gcp = 1,
+    Azure = 2,
+    Datadog = 3,
+    Loki = 4,
+    Honeycomb = 6,
+    NewRelic = 7,
+    Elastic = 8,
+    GrafanaTempo = 9,
+    Jaeger = 10,
+    Zipkin = 11,
+    OtlpGrpc = 12,
+    OtlpHttp = 13,
+    Stdout = 14,
+    None = 5,
 }
 
 #[derive(Debug, Default, Clone)]
+#[non_exhaustive]
 pub struct PresetConfig {
     pub export_mode: Option<crate::export::ExportMode>,
     pub otlp_endpoint: Option<String>,
