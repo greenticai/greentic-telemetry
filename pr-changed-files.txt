@@ -1,1 +1,8 @@
 .github/workflows/dependency-review.yml
+SECURITY_FIX_REPORT.md
+SEMVER_FIX_REPORT.md
+codex-prompt.txt
+pr-changed-files.txt
+semver-output.txt
+src/export.rs
+src/presets/mod.rs

@@ -1,77 +1,12 @@
-You are operating in a CI environment as a Rust Semver Reviewer.
+You are operating in a CI environment as a Security Reviewer.
 
 Task:
-1) Analyze the cargo-semver-checks violations listed below.
-2) Apply minimal, safe fixes to resolve each violation.
-3) Write SEMVER_FIX_REPORT.md summarizing your actions.
+1) Analyze the security alerts listed below.
+2) Apply minimal, safe fixes to remediate vulnerabilities.
+3) Write SECURITY_FIX_REPORT.md summarizing your actions.
 
-Fix strategies (in order of preference):
-- For "enum variant added on exhaustive enum": add #[non_exhaustive] to the enum.
-- For "constructible struct adds field": add #[non_exhaustive] to the struct.
-- For "enum variant discriminant changed": add explicit discriminant values to preserve the original ordering, OR add #[non_exhaustive].
-- For removed/renamed public items: restore the old item as a deprecated alias if possible.
-- As a last resort: bump the crate version (minor for 0.x crates, major for 1.x+).
-
-Important rules:
-- Do NOT change any logic or behavior — only add attributes or version bumps.
-- Do NOT modify test files unless a test directly asserts on a removed item.
-- Prefer #[non_exhaustive] over version bumps — it is the least disruptive fix.
-- If adding #[non_exhaustive], also ensure existing match arms have a wildcard `_ => {}` catch-all where needed in the same crate.
-
-cargo-semver-checks output:
-[1m[32m    Building[0m greentic-telemetry v0.4.3 (current)
-[1m[32m       Built[0m [  51.283s] (current)
-[1m[32m     Parsing[0m greentic-telemetry v0.4.3 (current)
-[1m[32m      Parsed[0m [   0.022s] (current)
-[1m[32m    Building[0m greentic-telemetry v0.4.3 (baseline)
-[1m[32m       Built[0m [  21.183s] (baseline)
-[1m[32m     Parsing[0m greentic-telemetry v0.4.3 (baseline)
-[1m[32m      Parsed[0m [   0.012s] (baseline)
-[1m[32m    Checking[0m greentic-telemetry v0.4.3 -> v0.4.3 (no change; assume minor)
-[1m[31m     Checked[0m [   0.024s] 196 checks: 193 pass, 3 fail, 0 warn, 56 skip
-
---- failure constructible_struct_adds_field: externally-constructible struct adds field ---
-
-[1mDescription:[0m
-A pub struct constructible with a struct literal has a new pub field. Existing struct literals must be updated to include the new field.
-        ref: https://doc.rust-lang.org/reference/expressions/struct-expr.html
-       impl: https://github.com/obi1kenobi/cargo-semver-checks/tree/v0.47.0/src/lints/constructible_struct_adds_field.ron
-
-[1mFailed in:[0m
-  field PresetConfig.sampling_ratio in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:45
-  field ExportConfig.resource_attributes in /home/runner/work/greentic-telemetry/greentic-telemetry/src/export.rs:42
-  field ExportConfig.tls_config in /home/runner/work/greentic-telemetry/greentic-telemetry/src/export.rs:44
-
---- failure enum_no_repr_variant_discriminant_changed: enum variant had its discriminant change value ---
-
-[1mDescription:[0m
-The enum's variant had its discriminant value change. This breaks downstream code that used its value via a numeric cast like `as isize`.
-        ref: https://doc.rust-lang.org/reference/items/enumerations.html#assigning-discriminant-values
-       impl: https://github.com/obi1kenobi/cargo-semver-checks/tree/v0.47.0/src/lints/enum_no_repr_variant_discriminant_changed.ron
-
-[1mFailed in:[0m
-  variant CloudPreset::None 5 -> 14 in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:36
-
---- failure enum_variant_added: enum variant added on exhaustive enum ---
-
-[1mDescription:[0m
-A publicly-visible enum without #[non_exhaustive] has a new variant.
-        ref: https://doc.rust-lang.org/cargo/reference/semver.html#enum-variant-new
-       impl: https://github.com/obi1kenobi/cargo-semver-checks/tree/v0.47.0/src/lints/enum_variant_added.ron
-
-[1mFailed in:[0m
-  variant ExportMode:AzureAppInsights in /home/runner/work/greentic-telemetry/greentic-telemetry/src/export.rs:13
-  variant ExportMode:AwsXRay in /home/runner/work/greentic-telemetry/greentic-telemetry/src/export.rs:14
-  variant ExportMode:GcpCloudTrace in /home/runner/work/greentic-telemetry/greentic-telemetry/src/export.rs:15
-  variant CloudPreset:Honeycomb in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:27
-  variant CloudPreset:NewRelic in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:28
-  variant CloudPreset:Elastic in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:29
-  variant CloudPreset:GrafanaTempo in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:30
-  variant CloudPreset:Jaeger in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:31
-  variant CloudPreset:Zipkin in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:32
-  variant CloudPreset:OtlpGrpc in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:33
-  variant CloudPreset:OtlpHttp in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:34
-  variant CloudPreset:Stdout in /home/runner/work/greentic-telemetry/greentic-telemetry/src/presets/mod.rs:35
-
-[1m[31m     Summary[0m semver requires new major version: 3 major and 0 minor checks failed
-[1m[32m    Finished[0m [  76.145s] greentic-telemetry
+Security alerts JSON:
+{
+  "dependabot": [],
+  "code_scanning": []
+}
