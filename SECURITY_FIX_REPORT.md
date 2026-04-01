@@ -1,26 +1,31 @@
 # Security Fix Report
 
-Date: 2026-03-30 (UTC)  
-Branch: `feat/codeql`
+Date: 2026-04-01 (UTC)
+Branch: `ci/enable-semver-checks`
 
 ## Inputs Reviewed
-- Dependabot alerts: `[]`
-- Code scanning alerts: `[]`
-- New PR dependency vulnerabilities: `[]`
+- Dependabot alerts (`security-alerts.json`): `[]`
+- Code scanning alerts (`security-alerts.json`): `[]`
+- New PR dependency vulnerabilities (`pr-vulnerable-changes.json`): `[]`
 
 ## PR Dependency Change Check
-- Dependency manifests detected in repository:
+- PR changed files (`pr-changed-files.txt`):
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/codex-semver-fix.yml`
+- Dependency manifests/lockfiles present in repo:
   - `Cargo.toml`
   - `Cargo.lock`
-- Compared PR changes against `origin/main` using merge-base diff.
-- Also checked latest commit diff (`HEAD~1..HEAD`) for confirmation.
-- Result: **No dependency files were modified in this PR**.
+- Result: **No dependency files were modified by this PR**.
 
 ## Remediation Actions
-- No actionable vulnerabilities were identified from the provided security alerts.
-- No new PR dependency vulnerabilities were identified.
-- No code or dependency changes were required for remediation.
+- No actionable vulnerabilities were identified from Dependabot or code scanning inputs.
+- No new PR dependency vulnerabilities were reported.
+- No code or dependency updates were required.
+
+## Additional Validation
+- Attempted local Rust dependency audit with `cargo audit`.
+- Could not execute in this CI sandbox because Rustup could not write to `/home/runner/.rustup/tmp` (read-only filesystem).
 
 ## Outcome
 - Security review completed for this CI run.
-- Repository required no security fixes for the supplied alert set.
+- No vulnerabilities required remediation.
