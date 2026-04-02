@@ -1,8 +1,10 @@
+.github/workflows/ci-aws-telemetry.yml
+.github/workflows/ci-azure-telemetry.yml
+.github/workflows/ci-gcp-telemetry.yml
+.github/workflows/ci.yml
+.github/workflows/codeql.yml
+.github/workflows/codex-security-fix.yml
+.github/workflows/codex-semver-fix.yml
+.github/workflows/dependabot-automerge.yml
 .github/workflows/dependency-review.yml
-SECURITY_FIX_REPORT.md
-SEMVER_FIX_REPORT.md
-codex-prompt.txt
-pr-changed-files.txt
-semver-output.txt
-src/export.rs
-src/presets/mod.rs
+.github/workflows/release.yml
