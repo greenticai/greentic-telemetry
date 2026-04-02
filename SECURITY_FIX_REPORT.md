@@ -18,8 +18,8 @@ Input payload:
 ```
 
 ## Remediation Actions
-- Reviewed provided Dependabot alert set; no vulnerable dependencies were reported.
-- Reviewed provided code scanning alert set; no code vulnerabilities were reported.
+- Reviewed the provided Dependabot alert set; no vulnerable dependencies were reported.
+- Reviewed the provided code-scanning alert set; no code vulnerabilities were reported.
 - Applied no code or dependency changes because there were no actionable findings.
 
 ## Outcome
