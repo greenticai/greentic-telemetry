@@ -1,12 +1,1 @@
-.github/workflows/ci-aws-telemetry.yml
-.github/workflows/ci-azure-telemetry.yml
-.github/workflows/ci-gcp-telemetry.yml
 .github/workflows/ci.yml
-.github/workflows/codeql.yml
-.github/workflows/codex-security-fix.yml
-.github/workflows/codex-semver-fix.yml
-.github/workflows/dependabot-automerge.yml
-.github/workflows/dependency-review.yml
-.github/workflows/release.yml
-SECURITY_FIX_REPORT.md
-pr-changed-files.txt
