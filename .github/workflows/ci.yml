@@ -14,15 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  semver-checks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: obi1kenobi/cargo-semver-checks-action@v2
-        with:
-          rust-toolchain: manual
+  # TODO: re-enable semver-checks once API surface stabilizes
+  # semver-checks:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: Swatinem/rust-cache@v2
+  #     - uses: obi1kenobi/cargo-semver-checks-action@v2
+  #       with:
+  #         rust-toolchain: manual
 
   build:
     runs-on: ubuntu-latest

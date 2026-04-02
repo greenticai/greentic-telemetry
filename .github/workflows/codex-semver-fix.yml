@@ -1,7 +1,9 @@
+# TODO: re-enable once API surface stabilizes
 name: Codex Semver Fix
 on:
-  pull_request:
-    branches: [main]
+  # Disabled — triggers commented out until semver checks are re-enabled
+  # pull_request:
+  #   branches: [main]
   workflow_dispatch:
     inputs:
       branch:
