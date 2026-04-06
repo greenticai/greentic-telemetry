@@ -1,0 +1,20 @@
+name: Dev Publish
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dev-publish:
+    uses: greenticai/.github/.github/workflows/dev-publish.yml@main
+    with:
+      crates: "greentic-telemetry"
+    secrets: inherit
