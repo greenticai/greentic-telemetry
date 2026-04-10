@@ -45,18 +45,13 @@ async fn emit_azure_direct() -> anyhow::Result<()> {
     let marker = std::env::var("TEST_MARKER")
         .unwrap_or_else(|_| format!("azure-direct-{}", uuid::Uuid::new_v4()));
 
-    let export = ExportConfig {
-        mode: ExportMode::AzureAppInsights,
-        endpoint: None, // connection string has everything
-        headers: HashMap::new(),
-        sampling: Sampling::AlwaysOn,
-        compression: None,
-        resource_attributes: {
-            let mut m = HashMap::new();
-            m.insert("test.marker".into(), marker.clone());
-            m
-        },
-        tls_config: None,
+    let mut export = ExportConfig::default();
+    export.mode = ExportMode::AzureAppInsights;
+    export.sampling = Sampling::AlwaysOn;
+    export.resource_attributes = {
+        let mut m = HashMap::new();
+        m.insert("test.marker".into(), marker.clone());
+        m
     };
 
     init_telemetry_from_config(
@@ -112,22 +107,18 @@ async fn emit_gcp_direct() -> anyhow::Result<()> {
     let marker = std::env::var("TEST_MARKER")
         .unwrap_or_else(|_| format!("gcp-direct-{}", uuid::Uuid::new_v4()));
 
-    let export = ExportConfig {
-        mode: ExportMode::GcpCloudTrace,
-        endpoint: None,
-        headers: {
-            let mut h = HashMap::new();
-            h.insert("_gcp_project_id".into(), project_id.clone());
-            h
-        },
-        sampling: Sampling::AlwaysOn,
-        compression: None,
-        resource_attributes: {
-            let mut m = HashMap::new();
-            m.insert("test.marker".into(), marker.clone());
-            m
-        },
-        tls_config: None,
+    let mut export = ExportConfig::default();
+    export.mode = ExportMode::GcpCloudTrace;
+    export.headers = {
+        let mut h = HashMap::new();
+        h.insert("_gcp_project_id".into(), project_id.clone());
+        h
+    };
+    export.sampling = Sampling::AlwaysOn;
+    export.resource_attributes = {
+        let mut m = HashMap::new();
+        m.insert("test.marker".into(), marker.clone());
+        m
     };
 
     init_telemetry_from_config(
@@ -185,18 +176,13 @@ async fn emit_aws_direct() -> anyhow::Result<()> {
         .unwrap_or_else(|_| format!("aws-direct-{}", uuid::Uuid::new_v4()));
 
     // No endpoint → direct mode (OTLP/HTTP to X-Ray with SigV4)
-    let export = ExportConfig {
-        mode: ExportMode::AwsXRay,
-        endpoint: None,
-        headers: HashMap::new(),
-        sampling: Sampling::AlwaysOn,
-        compression: None,
-        resource_attributes: {
-            let mut m = HashMap::new();
-            m.insert("test.marker".into(), marker.clone());
-            m
-        },
-        tls_config: None,
+    let mut export = ExportConfig::default();
+    export.mode = ExportMode::AwsXRay;
+    export.sampling = Sampling::AlwaysOn;
+    export.resource_attributes = {
+        let mut m = HashMap::new();
+        m.insert("test.marker".into(), marker.clone());
+        m
     };
 
     init_telemetry_from_config(
@@ -229,21 +215,14 @@ async fn emit_aws_direct() -> anyhow::Result<()> {
 async fn azure_exporter_rejects_missing_connection_string() {
     use greentic_telemetry::export::{ExportConfig, ExportMode, Sampling};
     use greentic_telemetry::init_telemetry_from_config;
-    use std::collections::HashMap;
 
     // Ensure no env var leaks
     // SAFETY: test runs single-threaded; no concurrent env access.
     unsafe { std::env::remove_var("APPLICATIONINSIGHTS_CONNECTION_STRING") };
 
-    let export = ExportConfig {
-        mode: ExportMode::AzureAppInsights,
-        endpoint: None,
-        headers: HashMap::new(),
-        sampling: Sampling::AlwaysOn,
-        compression: None,
-        resource_attributes: HashMap::new(),
-        tls_config: None,
-    };
+    let mut export = ExportConfig::default();
+    export.mode = ExportMode::AzureAppInsights;
+    export.sampling = Sampling::AlwaysOn;
 
     let result = init_telemetry_from_config(
         TelemetryConfig {
