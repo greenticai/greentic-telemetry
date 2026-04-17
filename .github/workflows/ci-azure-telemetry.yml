@@ -42,7 +42,7 @@ jobs:
         run: az extension add -n application-insights
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.94.0
 
       - name: Run tests (emit telemetry)
         env:
