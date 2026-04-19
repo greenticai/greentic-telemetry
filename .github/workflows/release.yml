@@ -1,5 +1,8 @@
 name: Release
 
+# This workflow is the single release path for the crate:
+# it gates on CI, publishes to crates.io, and creates the GitHub release.
+
 permissions:
   contents: write
 
