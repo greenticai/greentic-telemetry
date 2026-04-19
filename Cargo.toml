@@ -1,9 +1,9 @@
 [package]
 name = "greentic-telemetry"
-version = "0.4.6"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/greentic-ai/greentic-telemetry"
+repository = "https://github.com/greenticai/greentic-telemetry"
 homepage = "https://greentic.ai"
 documentation = "https://docs.rs/greentic-telemetry"
 description = "Thin telemetry facade for Greentic: tracing/logging/metrics with OTLP + WASM."
@@ -80,7 +80,7 @@ opentelemetry-application-insights = { version = "0.44", default-features = fals
 opentelemetry-http = { version = "0.31", features = ["reqwest"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
 opentelemetry-aws = { version = "0.19", default-features = false, features = ["trace"], optional = true }
-opentelemetry-gcloud-trace = { version = "0.22", optional = true }
+opentelemetry-gcloud-trace = { version = "0.23", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
 async-trait = { version = "0.1", optional = true }
 aws-config = { version = "1", optional = true }
