@@ -1,0 +1,36 @@
+name: Nightly Semver Advisory
+
+# Advisory-mode cargo-semver-checks on a nightly schedule. Replaces the
+# inline semver-checks job that was commented out in ci.yml with a
+# "re-enable once API surface stabilizes" TODO — the API has stabilized
+# at v0.5, and the advisory-mode path is non-blocking (continue-on-error)
+# so it's safe to re-enable without PR disruption. See
+# plans/binary-bifurcation.md Phase A. The real semver gate remains at
+# weekly-stable-prepare on main; this is the compass, not the gate.
+
+on:
+  schedule:
+    # 05:47 UTC — staggered against Wave 1 nightly-semver callers:
+    # greentic-types 05:17, greentic-component 05:23, greentic-oauth 05:29,
+    # serde-yaml-gtc 05:35, greentic-secrets 05:41.
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+    inputs:
+      baseline-rev:
+        description: "Optional explicit baseline git ref (default: latest vX.Y.Z tag)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-semver-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  advisory:
+    uses: greenticai/.github/.github/workflows/nightly-semver-advisory.yml@main
+    with:
+      semver-baseline-rev: ${{ inputs.baseline-rev || '' }}
