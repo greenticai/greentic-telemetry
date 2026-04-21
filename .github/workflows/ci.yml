@@ -1,37 +1,34 @@
 name: CI
-
-permissions:
-  contents: read
-
 on:
   workflow_call:
   pull_request:
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # TODO: re-enable semver-checks once API surface stabilizes
-  # semver-checks:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@1.95.0
-  #     - uses: Swatinem/rust-cache@v2
-  #     - uses: obi1kenobi/cargo-semver-checks-action@v2
-  #       with:
-  #         rust-toolchain: manual
+  ci:
+    uses: greenticai/.github/.github/workflows/pr-ci.yml@main
+    with:
+      variant: host
+      # dependency-review already runs via dependency-review.yml (which also
+      # wires the Codex remediation path); avoid duplicate runs.
+      run-dependency-review: false
 
-  build:
+  # Preserves feature-flag build coverage that pr-ci.yml doesn't cover.
+  # pr-ci.yml's clippy and test both run with --all-features, so the
+  # default-features and --no-default-features builds would regress silently
+  # without this sibling. Cheap: two parallel `cargo build` runs, no tests.
+  feature-matrix:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["", "--no-default-features", "--all-features"]
+        features: ["", "--no-default-features"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95.0
-      - name: Cargo build
-        run: cargo build ${{ matrix.features }}
-      - name: Cargo test (all features)
-        run: cargo test --all-features
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build ${{ matrix.features }}
