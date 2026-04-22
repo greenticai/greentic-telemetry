@@ -13,7 +13,7 @@ on:
     # 05:47 UTC — staggered against Wave 1 nightly-semver callers:
     # greentic-types 05:17, greentic-component 05:23, greentic-oauth 05:29,
     # serde-yaml-gtc 05:35, greentic-secrets 05:41.
-    - cron: "47 5 * * *"
+    - cron: "45 3 * * *"
   workflow_dispatch:
     inputs:
       baseline-rev:
