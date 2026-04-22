@@ -1,5 +1,8 @@
 name: Release
 
+# This workflow is the single release path for the crate:
+# it gates on CI, publishes to crates.io, and creates the GitHub release.
+
 permissions:
   contents: write
 
@@ -21,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
       - name: Extract crate version
         id: metadata
         run: |

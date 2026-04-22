@@ -319,10 +319,6 @@ fmt_reason="$(missing_tools_reason cargo)"
 run_or_skip "cargo fmt --all -- --check" "$fmt_reason" \
   cargo fmt --all -- --check
 
-clippy_reason="$(missing_tools_reason cargo)"
-run_or_skip "cargo clippy --all-targets --all-features" "$clippy_reason" \
-  cargo clippy --all-targets --all-features -- -D warnings
-
 build_flags=("" "--no-default-features" "--all-features")
 build_labels=("default features" "no default features" "all features")
 for idx in "${!build_flags[@]}"; do
@@ -335,6 +331,14 @@ for idx in "${!build_flags[@]}"; do
   build_reason="$(missing_tools_reason cargo)"
   run_or_skip "cargo build (${label})" "$build_reason" "${args[@]}"
 done
+
+check_reason="$(missing_tools_reason cargo)"
+run_or_skip "cargo check --workspace --all-features --locked" "$check_reason" \
+  cargo check --workspace --all-features --locked
+
+clippy_reason="$(missing_tools_reason cargo)"
+run_or_skip "cargo clippy --workspace --all-targets --all-features --locked" "$clippy_reason" \
+  cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 test_reason="$(missing_tools_reason cargo)"
 run_or_skip "cargo test --workspace --all-features --locked" "$test_reason" \
