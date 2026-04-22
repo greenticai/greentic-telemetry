@@ -10,7 +10,7 @@ on:
     # 04:53 UTC — staggered against Wave 1 codex-semver-fix callers:
     # greentic-types 04:11, greentic-component 04:17, greentic-oauth 04:23,
     # serde-yaml-gtc 04:29, greentic-secrets 04:37.
-    - cron: "53 4 * * *"
+    - cron: "21 3 * * *"
   workflow_dispatch:
     inputs:
       branch:
