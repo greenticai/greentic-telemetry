@@ -1,3 +1,21 @@
+// The cloud exporters + dev-console subscriber need a multi-threaded Tokio runtime — not on wasm32.
+#[cfg(all(
+    target_arch = "wasm32",
+    any(
+        feature = "otlp",
+        feature = "azure",
+        feature = "aws",
+        feature = "gcp",
+        feature = "dev-console",
+    )
+))]
+compile_error!(
+    "greentic-telemetry: features `otlp`, `azure`, `aws`, `gcp`, and `dev-console` require a \
+     multi-threaded Tokio runtime and are not supported on wasm32. Build with \
+     `--no-default-features` (the `default` feature enables `otlp`) and export telemetry via \
+     the wasm guest/host bridge instead."
+);
+
 #[cfg(feature = "aws")]
 mod aws_sigv4_client;
 #[cfg(feature = "otlp")]
