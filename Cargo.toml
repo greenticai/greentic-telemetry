@@ -37,8 +37,12 @@ otlp = [
     "opentelemetry_sdk",
     "tracing-opentelemetry",
 ]
-dev = []
+dev = ["dep:tracing-appender"]
 prod-json = []
+# WIT guest bridge: pulls in wit-bindgen and generates `greentic:telemetry/logging`
+# import bindings used by src/wasm_guest.rs. Only meaningful on wasm32; off by
+# default so a plain `--no-default-features` wasm build needs no wit-bindgen.
+wit-guest = ["dep:wit-bindgen"]
 dev-console = [
     "console-subscriber",
 ]
@@ -82,17 +86,20 @@ anyhow = "1"
 once_cell = "1"
 tracing = "0.1"
 tracing-error = "0.2"
-tracing-appender = "0.2"
+# tracing-appender is `dev`-only (rolling-file logger) and not wasm-compatible — keep it optional.
+tracing-appender = { version = "0.2", optional = true }
 serde_json = "1"
 thiserror = "2"
 
-[dependencies.tokio]
-version = "1"
-features = [
-    "macros",
-    "rt",
-    "rt-multi-thread",
-]
+# Native: the cloud exporters in src/init.rs leak a multi-thread runtime to drain batch exports.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+# wasm32: no OS threads → no `rt-multi-thread`/`net`; just enough for the task_local in src/tasklocal.rs.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+# Enabled by the `wit-guest` feature — generates the host-bridge bindings in src/wasm_guest.rs.
+wit-bindgen = { version = "0.57", optional = true }
 
 [dependencies.tracing-subscriber]
 version = "0.3"
