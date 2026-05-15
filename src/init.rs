@@ -289,10 +289,9 @@ fn configure_otlp(service_name: &str) -> Result<()> {
 
 #[cfg(feature = "otlp")]
 fn install_otlp(endpoint: &str, resource: Resource) -> Result<()> {
-    // Tonic/hyper gRPC exporters require a Tokio runtime for the underlying
-    // HTTP/2 connection.  When called from a plain `fn main()` (no runtime),
-    // we spin up a lightweight current-thread runtime just for the builder
-    // calls and keep it alive for the background batch export tasks.
+    // Tonic gRPC exporters need a Tokio runtime; with none ambient, leak a 1-worker
+    // multi-thread runtime so its thread keeps draining batch exports after we return
+    // (a forgotten current-thread runtime never runs — also why `otlp` is wasm-incompatible).
     if tokio::runtime::Handle::try_current().is_err() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
