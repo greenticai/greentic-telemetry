@@ -158,7 +158,7 @@ version = "1"
 optional = true
 
 [dependencies.opentelemetry-appender-tracing]
-version = "0.31"
+version = "0.32"
 optional = true
 
 [dependencies.opentelemetry-application-insights]
@@ -237,7 +237,7 @@ version = "1"
 optional = true
 
 [dev-dependencies]
-opentelemetry-appender-tracing = "0.31"
+opentelemetry-appender-tracing = "0.32"
 # In-memory OTLP log exporter for the logs-bridge test (tests/otlp_logs.rs).
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics", "logs", "testing"] }
 
