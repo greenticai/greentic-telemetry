@@ -162,7 +162,7 @@ version = "0.31"
 optional = true
 
 [dependencies.opentelemetry-application-insights]
-version = "0.44"
+version = "0.45"
 default-features = false
 features = [
     "trace",
